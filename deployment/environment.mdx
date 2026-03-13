@@ -1,0 +1,465 @@
+---
+title: Environment Configuration
+description: Configure environment variables for the MarkItDown API
+---
+
+The MarkItDown API uses environment variables for configuration. This page documents all available settings and their usage.
+
+## Configuration File
+
+Create a `.env` file in your project root by copying the example:
+
+```bash
+cp .env.example .env
+```
+
+## Environment Variables
+
+### OPENAI_API_KEY
+
+<Info>
+**Optional** - Only required for AI-enhanced image OCR
+</Info>
+
+```bash
+OPENAI_API_KEY=sk-...
+```
+
+**Purpose**: Enables AI-powered image description and OCR using OpenAI's GPT-4 Vision API.
+
+**Behavior**:
+- **With key**: Images are processed with AI to extract text and generate descriptions
+- **Without key**: All text-based formats (PDF, DOCX, XLSX, HTML, etc.) still convert perfectly. Only image description is skipped.
+
+**Where to get it**: [OpenAI Platform](https://platform.openai.com/api-keys)
+
+<Note>
+The API works fully without this key for all non-image formats. You can always add it later if you need image OCR capabilities.
+</Note>
+
+### CORS_ORIGINS
+
+<Warning>
+**Required** - Must be configured for security
+</Warning>
+
+```bash
+CORS_ORIGINS=http://localhost:5173
+```
+
+**Purpose**: Comma-separated list of allowed frontend origins for Cross-Origin Resource Sharing (CORS).
+
+**Configuration by environment**:
+
+<Tabs>
+  <Tab title="Local Development">
+    ```bash
+    CORS_ORIGINS=http://localhost:5173
+    ```
+    
+    Default port for Vite development server.
+  </Tab>
+  
+  <Tab title="Production">
+    ```bash
+    CORS_ORIGINS=https://myapp.com,https://www.myapp.com
+    ```
+    
+    Use your actual production domain(s).
+  </Tab>
+  
+  <Tab title="Azure">
+    ```bash
+    CORS_ORIGINS=https://my-app.azurestaticapps.net
+    ```
+    
+    Set to your Azure Static Web Apps URL.
+  </Tab>
+  
+  <Tab title="Multiple Origins">
+    ```bash
+    CORS_ORIGINS=http://localhost:5173,https://staging.myapp.com,https://myapp.com
+    ```
+    
+    Comma-separated, no spaces.
+  </Tab>
+</Tabs>
+
+**Implementation**: See `app/config.py:10-12` and `app/main.py:25-31`
+
+```python
+# app/config.py
+_raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173")
+CORS_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",")]
+
+# app/main.py
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+### MAX_UPLOAD_MB
+
+```bash
+MAX_UPLOAD_MB=50
+```
+
+**Purpose**: Maximum file upload size in megabytes.
+
+**Default**: `50` MB
+
+**Range**: Any positive integer. Adjust based on:
+- Your server memory capacity
+- Expected file sizes
+- Network bandwidth
+- Processing time requirements
+
+**Implementation**: See `app/config.py:14-16`
+
+```python
+MAX_UPLOAD_MB: int = int(os.getenv("MAX_UPLOAD_MB", "50"))
+MAX_UPLOAD_BYTES: int = MAX_UPLOAD_MB * 1024 * 1024
+```
+
+<Note>
+Larger files require more memory and processing time. Monitor your server resources if you increase this limit.
+</Note>
+
+### Azure Container Registry (ACR)
+
+<Info>
+**Optional** - Only needed for Azure Container Registry deployments
+</Info>
+
+```bash
+ACR_REGISTRY=myregistry
+IMAGE_TAG=latest
+```
+
+#### ACR_REGISTRY
+
+**Purpose**: Your Azure Container Registry name (without `.azurecr.io`).
+
+**Example**: If your registry URL is `myregistry.azurecr.io`, set:
+
+```bash
+ACR_REGISTRY=myregistry
+```
+
+**Usage**: Used in `docker-compose.yml` for pulling images from ACR:
+
+```yaml
+image: ${ACR_REGISTRY}.azurecr.io/markitdown-api:${IMAGE_TAG:-latest}
+```
+
+#### IMAGE_TAG
+
+**Purpose**: Docker image tag to deploy.
+
+**Default**: `latest`
+
+**Best practices**:
+- Use `latest` for development
+- Use semantic versions for production (e.g., `1.0.0`, `1.2.3`)
+- Use commit SHAs for traceability (e.g., `abc123f`)
+
+```bash
+# Development
+IMAGE_TAG=latest
+
+# Production
+IMAGE_TAG=1.0.0
+
+# CI/CD
+IMAGE_TAG=${{ github.sha }}
+```
+
+## Configuration Loading
+
+The application loads configuration using `python-dotenv`. See `app/config.py:1-5`:
+
+```python
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+```
+
+Configuration is loaded in this order:
+1. Environment variables (highest priority)
+2. `.env` file
+3. Default values in code (lowest priority)
+
+## Complete Example Files
+
+<CodeGroup>
+
+```bash .env.example
+# -------------------------------------------------------
+# MarkItDown Backend — Environment Variables
+# -------------------------------------------------------
+# Copy this file to .env and fill in your values.
+
+# Optional: OpenAI API key for AI-enhanced image OCR.
+# Without this, all text-based formats (PDF, DOCX, XLSX, etc.)
+# still convert perfectly. Only image description is skipped.
+OPENAI_API_KEY=
+
+# Comma-separated list of allowed frontend origins.
+# In Azure: set this to your frontend URL, e.g. https://my-app.azurestaticapps.net
+CORS_ORIGINS=http://localhost:5173
+
+# Maximum file upload size in megabytes (default: 50)
+MAX_UPLOAD_MB=50
+
+# --- Azure Container Registry (for docker-compose deploy) ---
+# Your ACR name (without .azurecr.io)
+# ACR_REGISTRY=myregistry
+# Image tag to deploy
+# IMAGE_TAG=latest
+```
+
+```bash Local Development
+# .env for local development
+OPENAI_API_KEY=sk-proj-...
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+MAX_UPLOAD_MB=50
+```
+
+```bash Production
+# .env for production deployment
+OPENAI_API_KEY=sk-proj-...
+CORS_ORIGINS=https://app.example.com,https://www.example.com
+MAX_UPLOAD_MB=100
+```
+
+```bash Azure Container Apps
+# .env for Azure deployment
+OPENAI_API_KEY=sk-proj-...
+CORS_ORIGINS=https://myapp.azurestaticapps.net
+MAX_UPLOAD_MB=75
+ACR_REGISTRY=myregistry
+IMAGE_TAG=1.0.0
+```
+
+</CodeGroup>
+
+## Environment-Specific Configuration
+
+<Steps>
+
+<Step title="Create environment files">
+
+Maintain separate files for each environment:
+
+```bash
+.env.local      # Local development
+.env.staging    # Staging environment
+.env.production # Production environment
+```
+
+</Step>
+
+<Step title="Copy appropriate file">
+
+```bash
+# For local development
+cp .env.local .env
+
+# For production
+cp .env.production .env
+```
+
+</Step>
+
+<Step title="Keep files secure">
+
+Add to `.gitignore`:
+
+```bash
+.env
+.env.*
+!.env.example
+```
+
+This ensures environment files are never committed to version control.
+
+</Step>
+
+</Steps>
+
+## Docker Configuration
+
+### Docker Compose
+
+The `docker-compose.yml` file automatically loads variables from `.env`:
+
+```yaml
+environment:
+  - CORS_ORIGINS=${CORS_ORIGINS}
+  - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+  - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-50}
+```
+
+The `:-` syntax provides default values if variables are not set.
+
+### Azure Container Apps
+
+Set environment variables during deployment:
+
+```bash
+az containerapp create \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --environment markitdown-env \
+  --image <your-registry>.azurecr.io/markitdown-api:latest \
+  --env-vars \
+    CORS_ORIGINS=https://myapp.com \
+    MAX_UPLOAD_MB=50
+```
+
+For secrets:
+
+```bash
+az containerapp secret set \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --secrets openai-key=<your-key>
+
+az containerapp update \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --set-env-vars OPENAI_API_KEY=secretref:openai-key
+```
+
+## Security Best Practices
+
+<Warning>
+Never commit `.env` files to version control. Always use secrets management in production.
+</Warning>
+
+### Checklist
+
+- [ ] Add `.env` to `.gitignore`
+- [ ] Use strong API keys with limited permissions
+- [ ] Rotate keys regularly
+- [ ] Use Azure Key Vault or similar for production secrets
+- [ ] Restrict CORS origins to known domains
+- [ ] Monitor API key usage and costs
+- [ ] Use environment-specific configurations
+- [ ] Never log or expose environment variables
+
+### Azure Key Vault Integration
+
+For production, use Azure Key Vault:
+
+```bash
+# Store secret in Key Vault
+az keyvault secret set \
+  --vault-name <your-vault> \
+  --name openai-api-key \
+  --value <your-key>
+
+# Reference in Container App
+az containerapp update \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --set-env-vars OPENAI_API_KEY=secretref:openai-key \
+  --secrets openai-key=keyvaultref:<key-vault-url>,identityref:<managed-identity>
+```
+
+## Validation
+
+The configuration is validated at application startup. See `app/config.py` for the complete implementation.
+
+### Check current configuration
+
+Create a simple script to verify your settings:
+
+```python
+from app.config import CORS_ORIGINS, MAX_UPLOAD_MB, OPENAI_API_KEY
+
+print(f"CORS Origins: {CORS_ORIGINS}")
+print(f"Max Upload: {MAX_UPLOAD_MB} MB")
+print(f"OpenAI Key: {'✓ Set' if OPENAI_API_KEY else '✗ Not set'}")
+```
+
+## Troubleshooting
+
+### CORS errors in browser
+
+**Symptom**: Frontend can't connect to API
+
+**Solution**: Verify `CORS_ORIGINS` matches your frontend URL exactly:
+
+```bash
+# Check current setting
+echo $CORS_ORIGINS
+
+# Update and restart
+docker-compose restart
+```
+
+### Upload size exceeded
+
+**Symptom**: `413 Payload Too Large` errors
+
+**Solution**: Increase `MAX_UPLOAD_MB`:
+
+```bash
+MAX_UPLOAD_MB=100
+```
+
+Restart the service after changes.
+
+### OpenAI API errors
+
+**Symptom**: Image conversion fails
+
+**Solution**: Verify your API key:
+
+```bash
+curl https://api.openai.com/v1/models \
+  -H "Authorization: Bearer $OPENAI_API_KEY"
+```
+
+Ensure the key has access to GPT-4 Vision models.
+
+## Reference
+
+All configuration code is in `app/config.py:1-22`:
+
+```python
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# OpenAI — optional, only needed for AI-enhanced image OCR
+OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
+
+# CORS origins — comma-separated in env
+_raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173")
+CORS_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",")]
+
+# Max upload size in MB
+MAX_UPLOAD_MB: int = int(os.getenv("MAX_UPLOAD_MB", "50"))
+MAX_UPLOAD_BYTES: int = MAX_UPLOAD_MB * 1024 * 1024
+
+# Paths
+BASE_DIR = Path(__file__).parent
+TEMPLATES_DIR = BASE_DIR / "templates"
+TEMPLATES_DIR.mkdir(exist_ok=True)
+```
+
+## Next Steps
+
+- Deploy with [Docker](/deployment/docker)
+- Deploy to [Azure Container Apps](/deployment/azure)
+- Learn about the [API endpoints](/api/overview)

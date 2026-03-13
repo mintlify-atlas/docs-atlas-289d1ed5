@@ -1,0 +1,164 @@
+---
+title: 'GET /health'
+description: 'Health check endpoint'
+---
+
+## Endpoint
+
+```http
+GET /health
+```
+
+Simple health check endpoint to verify that the API server is running and responding to requests.
+
+## Request
+
+No parameters required. This is a simple GET request with no body or query parameters.
+
+## Response
+
+### Success (200 OK)
+
+Returns a JSON object with server status.
+
+```json
+{
+  "status": "ok"
+}
+```
+
+<ResponseField name="status" type="string">
+  Always returns `"ok"` when the server is healthy and responding.
+</ResponseField>
+
+## Examples
+
+### cURL
+
+```bash
+curl http://localhost:8000/health
+```
+
+### Python
+
+```python
+import requests
+
+url = "http://localhost:8000/health"
+response = requests.get(url)
+
+if response.status_code == 200:
+    data = response.json()
+    print(f"Server status: {data['status']}")  # Output: Server status: ok
+```
+
+### JavaScript (Fetch)
+
+```javascript
+const response = await fetch('http://localhost:8000/health');
+
+if (response.ok) {
+  const data = await response.json();
+  console.log('Server status:', data.status);  // Output: Server status: ok
+}
+```
+
+### JavaScript (Axios)
+
+```javascript
+import axios from 'axios';
+
+const response = await axios.get('http://localhost:8000/health');
+console.log(response.data);  // { status: 'ok' }
+```
+
+## Use Cases
+
+### Docker Health Check
+
+Use in Docker Compose or Kubernetes health probes:
+
+```yaml
+# docker-compose.yml
+services:
+  api:
+    image: markitdown-api
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+```
+
+### Kubernetes Liveness Probe
+
+```yaml
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: markitdown-api
+    image: markitdown-api:latest
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8000
+      initialDelaySeconds: 30
+      periodSeconds: 10
+```
+
+### Load Balancer Health Check
+
+Configure your load balancer to ping this endpoint:
+
+- **Path**: `/health`
+- **Expected status**: `200`
+- **Expected response**: `{"status": "ok"}`
+
+### Monitoring Script
+
+```python
+import requests
+import time
+
+def monitor_api(base_url: str, interval: int = 60):
+    """Monitor API health every N seconds."""
+    while True:
+        try:
+            response = requests.get(f"{base_url}/health", timeout=5)
+            if response.status_code == 200:
+                print(f"✓ API is healthy at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                print(f"✗ API returned status {response.status_code}")
+        except Exception as e:
+            print(f"✗ API is down: {e}")
+        
+        time.sleep(interval)
+
+# Run monitoring
+monitor_api("http://localhost:8000", interval=30)
+```
+
+### Uptime Monitoring
+
+Configure with services like:
+
+- **UptimeRobot**: Monitor URL `https://your-domain.com/health`
+- **Pingdom**: HTTP check on `/health` endpoint
+- **StatusCake**: Status endpoint monitoring
+
+## Notes
+
+<Note>
+This endpoint only checks if the FastAPI application is running. It does not validate dependencies like Pandoc or the file system.
+</Note>
+
+<Note>
+For more comprehensive health checks, consider using `/convert/templates` to verify that Pandoc and template generation are working correctly.
+</Note>
+
+## Related Endpoints
+
+- [`GET /convert/templates`](/api/templates) - Check if default templates are available
+- Provides more detailed health information about conversion capabilities

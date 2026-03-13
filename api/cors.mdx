@@ -1,0 +1,119 @@
+---
+title: 'CORS Configuration'
+description: 'Configure Cross-Origin Resource Sharing (CORS) for the MarkItDown API'
+icon: 'globe'
+---
+
+## Overview
+
+The MarkItDown API includes CORS middleware to allow cross-origin requests from web applications. CORS is configured at the application level and controls which origins can access the API.
+
+## CORS Middleware Setup
+
+The API uses FastAPI's `CORSMiddleware` with the following configuration:
+
+```python app/main.py
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+### Allowed Settings
+
+<ParamField path="allow_origins" type="list[str]">
+  List of origins that are permitted to make cross-origin requests. Configured via the `CORS_ORIGINS` environment variable.
+</ParamField>
+
+<ParamField path="allow_credentials" type="bool" default="true">
+  Allows cookies and authentication headers in cross-origin requests.
+</ParamField>
+
+<ParamField path="allow_methods" type="list[str]" default='["*"]'>
+  All HTTP methods are allowed (GET, POST, PUT, DELETE, etc.).
+</ParamField>
+
+<ParamField path="allow_headers" type="list[str]" default='["*"]'>
+  All request headers are allowed.
+</ParamField>
+
+## Environment Configuration
+
+### CORS_ORIGINS
+
+The `CORS_ORIGINS` environment variable controls which domains can access the API.
+
+```python app/config.py
+# CORS origins — comma-separated in env, e.g. "http://localhost:5173,https://myapp.com"
+_raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173")
+CORS_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",")]
+```
+
+<Info>
+  The `CORS_ORIGINS` variable expects a **comma-separated** list of origins.
+</Info>
+
+### Configuration Examples
+
+<CodeGroup>
+
+```bash .env (Development)
+CORS_ORIGINS=http://localhost:5173
+```
+
+```bash .env (Multiple Origins)
+CORS_ORIGINS=http://localhost:5173,https://app.example.com,https://staging.example.com
+```
+
+```bash .env (Production)
+CORS_ORIGINS=https://app.example.com
+```
+
+</CodeGroup>
+
+## Default Configuration
+
+If the `CORS_ORIGINS` environment variable is not set, the API defaults to:
+
+```
+http://localhost:5173
+```
+
+This allows local development with Vite's default port.
+
+<Warning>
+  In production, always set `CORS_ORIGINS` to your specific domain(s). Avoid using wildcard (`*`) origins in production for security reasons.
+</Warning>
+
+## Testing CORS Configuration
+
+You can verify CORS is working by checking the response headers:
+
+```bash
+curl -H "Origin: http://localhost:5173" \
+     -H "Access-Control-Request-Method: POST" \
+     -H "Access-Control-Request-Headers: Content-Type" \
+     -X OPTIONS \
+     http://localhost:8000/upload
+```
+
+Successful CORS configuration will return headers like:
+
+```
+Access-Control-Allow-Origin: http://localhost:5173
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Methods: *
+Access-Control-Allow-Headers: *
+```
+
+## Security Considerations
+
+<Note>
+  - Only add trusted domains to `CORS_ORIGINS`
+  - Avoid using `*` for `allow_origins` in production
+  - The API allows credentials, so ensure origins are explicitly listed
+  - Remove development origins (localhost) from production configurations
+</Note>

@@ -1,0 +1,504 @@
+---
+title: OpenAI Integration
+description: Enable AI-powered image OCR using OpenAI's GPT-4 Vision for enhanced document conversion
+---
+
+The MarkItDown API integrates with OpenAI's GPT-4 Vision model to provide advanced optical character recognition (OCR) for images and scanned documents. When enabled, the API can extract text from images, screenshots, and other visual content.
+
+## Overview
+
+OpenAI integration is **optional** and enhances the conversion capabilities:
+
+| Without OpenAI | With OpenAI |
+|----------------|-------------|
+| Basic text extraction from images | AI-powered OCR with GPT-4 Vision |
+| Limited accuracy for complex images | High-accuracy text recognition |
+| No context understanding | Contextual understanding of image content |
+| Standard MarkItDown processing | Enhanced image description and extraction |
+
+<Info>
+The API works perfectly fine without OpenAI. The integration is purely optional and only enhances image processing capabilities.
+</Info>
+
+## Configuration
+
+OpenAI integration is controlled by a single environment variable:
+
+```bash
+# .env
+OPENAI_API_KEY=sk-...
+```
+
+The API checks for this configuration:
+
+```python
+# app/config.py:7-8
+# OpenAI — optional, only needed for AI-enhanced image OCR
+OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
+```
+
+**Source**: `app/config.py:7-8`
+
+<Steps>
+  <Step title="Get OpenAI API Key">
+    Sign up at [OpenAI](https://platform.openai.com/) and create an API key.
+  </Step>
+
+  <Step title="Set Environment Variable">
+    Add the key to your `.env` file:
+    ```bash
+    OPENAI_API_KEY=sk-proj-...
+    ```
+  </Step>
+
+  <Step title="Restart API Server">
+    The configuration is loaded at startup:
+    ```bash
+    uvicorn app.main:app --reload
+    ```
+  </Step>
+
+  <Step title="Verify Integration">
+    The API will now use OpenAI for image processing automatically.
+  </Step>
+</Steps>
+
+## How It Works
+
+The converter initialization checks for the OpenAI API key:
+
+```python
+# app/services/markitdown_service.py:15-24
+def _get_converter() -> MarkItDown:
+    """Return a MarkItDown instance. Uses OpenAI for image OCR if API key is set."""
+    if OPENAI_API_KEY:
+        try:
+            import openai
+            client = openai.OpenAI(api_key=OPENAI_API_KEY)
+            return MarkItDown(mlm_client=client, mlm_model="gpt-4o-mini")
+        except Exception:
+            pass
+    return MarkItDown()
+```
+
+**Source**: `app/services/markitdown_service.py:15-24`
+
+### Model Selection
+
+The API uses **GPT-4o-mini** for image processing:
+
+```python
+return MarkItDown(mlm_client=client, mlm_model="gpt-4o-mini")
+```
+
+<Note>
+`gpt-4o-mini` provides an excellent balance of accuracy and cost for OCR tasks. It's optimized for vision tasks while being more economical than full GPT-4.
+</Note>
+
+### Fallback Behavior
+
+If OpenAI initialization fails, the API gracefully falls back to standard processing:
+
+```python
+try:
+    import openai
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    return MarkItDown(mlm_client=client, mlm_model="gpt-4o-mini")
+except Exception:
+    pass
+return MarkItDown()  # Fallback to standard MarkItDown
+```
+
+Reasons for fallback:
+- Invalid API key
+- OpenAI package not installed
+- Network issues
+- API quota exceeded
+
+## Usage Examples
+
+### Converting Images
+
+With OpenAI configured, image conversion gains enhanced capabilities:
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@screenshot.png" \
+  -o screenshot.md
+```
+
+**Without OpenAI**:
+```markdown
+# screenshot
+
+![screenshot](screenshot.png)
+```
+
+**With OpenAI**:
+```markdown
+# screenshot
+
+The image shows a code editor with a Python function that processes user data.
+The function includes error handling and logging statements.
+Key sections visible: imports, main function definition, and a for loop.
+```
+
+### Batch Image Processing
+
+Process multiple images with enhanced OCR:
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@page1.jpg" \
+  -F "files=@page2.jpg" \
+  -F "files=@page3.jpg" \
+  -o scanned_document.zip
+```
+
+Each image will be processed with GPT-4 Vision for accurate text extraction.
+
+### Mixed Content Conversion
+
+OpenAI only affects image processing. Other file types use standard conversion:
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@document.docx" \
+  -F "files=@chart.png" \
+  -F "files=@data.xlsx" \
+  -o mixed_content.zip
+```
+
+- `document.docx` → Standard DOCX conversion
+- `chart.png` → **OpenAI-enhanced** image OCR
+- `data.xlsx` → Standard Excel table conversion
+
+## Supported Image Formats
+
+When OpenAI is enabled, these image formats benefit from enhanced OCR:
+
+- PNG (`.png`)
+- JPEG (`.jpg`, `.jpeg`)
+- GIF (`.gif`)
+- BMP (`.bmp`)
+- TIFF (`.tiff`, `.tif`)
+- WebP (`.webp`)
+
+<Warning>
+The MarkItDown library determines which files are processed as images. The API does not filter or validate image formats directly.
+</Warning>
+
+## Cost Considerations
+
+### Pricing Model
+
+OpenAI charges based on:
+- **Input tokens**: Image size and complexity
+- **Output tokens**: Generated text description
+- **Model**: GPT-4o-mini rates
+
+<Accordion title="Estimating costs">
+  **Image processing costs** (approximate):
+  - Small image (500x500): ~$0.001 - $0.003 per image
+  - Medium image (1920x1080): ~$0.005 - $0.010 per image
+  - Large image (4K): ~$0.015 - $0.030 per image
+
+  These are estimates. Check [OpenAI's pricing page](https://openai.com/pricing) for current rates.
+</Accordion>
+
+### Cost Control
+
+**Strategies to manage costs**:
+
+1. **Use selectively**: Only enable OpenAI when processing image-heavy documents
+2. **Monitor usage**: Set up OpenAI usage alerts in your account
+3. **Resize images**: Preprocess large images to reduce token costs
+4. **Disable when unnecessary**: Remove `OPENAI_API_KEY` for non-image workloads
+
+## Environment Configuration
+
+Complete environment setup:
+
+```bash
+# .env
+
+# OpenAI Integration (optional)
+OPENAI_API_KEY=sk-proj-...
+
+# CORS Settings
+CORS_ORIGINS=http://localhost:5173,https://myapp.com
+
+# Upload Limits
+MAX_UPLOAD_MB=50
+```
+
+The configuration is loaded at startup:
+
+```python
+# app/config.py:1-21
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# OpenAI — optional, only needed for AI-enhanced image OCR
+OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
+
+# CORS origins — comma-separated in env
+_raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173")
+CORS_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",")]
+
+# Max upload size in MB
+MAX_UPLOAD_MB: int = int(os.getenv("MAX_UPLOAD_MB", "50"))
+MAX_UPLOAD_BYTES: int = MAX_UPLOAD_MB * 1024 * 1024
+
+# Paths
+BASE_DIR = Path(__file__).parent
+TEMPLATES_DIR = BASE_DIR / "templates"
+TEMPLATES_DIR.mkdir(exist_ok=True)
+```
+
+**Source**: `app/config.py:1-21`
+
+## Integration in Service Layer
+
+The service layer seamlessly integrates OpenAI:
+
+```python
+# app/services/markitdown_service.py:92-118
+async def convert_files_to_markdown(files: list) -> Tuple[bytes, str, str]:
+    converter = _get_converter()  # Automatically uses OpenAI if configured
+    results: List[Tuple[str, str]] = []
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+
+        for upload in files:
+            raw = await upload.read()
+            tmp_file = tmp / upload.filename
+            tmp_file.write_bytes(raw)
+
+            if _is_excel(upload.filename):
+                results.extend(_convert_excel(tmp_file, upload.filename))
+            else:
+                result = converter.convert(str(tmp_file))
+                stem = Path(upload.filename).stem
+                results.append((f"{stem}.md", result.text_content))
+
+    # Return results (single file or ZIP)
+    # ...
+```
+
+**Source**: `app/services/markitdown_service.py:92-118`
+
+## Testing Integration
+
+### Verify OpenAI is Active
+
+Check logs on startup:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+If OpenAI is configured, the MarkItDown instance will initialize with the OpenAI client.
+
+### Test Image Conversion
+
+Convert a test image and check the output quality:
+
+```bash
+# Without OpenAI
+unset OPENAI_API_KEY
+uvicorn app.main:app --reload
+curl -X POST http://localhost:8000/upload \
+  -F "files=@test.png" \
+  -o test_basic.md
+
+# With OpenAI
+export OPENAI_API_KEY=sk-...
+uvicorn app.main:app --reload
+curl -X POST http://localhost:8000/upload \
+  -F "files=@test.png" \
+  -o test_enhanced.md
+
+# Compare outputs
+diff test_basic.md test_enhanced.md
+```
+
+### Python Test Script
+
+```python
+import os
+import requests
+
+def test_image_conversion(image_path: str):
+    """Test image conversion with and without OpenAI."""
+    
+    # Check if OpenAI is configured
+    has_openai = os.getenv("OPENAI_API_KEY") is not None
+    print(f"OpenAI enabled: {has_openai}")
+    
+    with open(image_path, "rb") as f:
+        files = {"files": f}
+        response = requests.post(
+            "http://localhost:8000/upload",
+            files=files
+        )
+    
+    if response.ok:
+        content = response.content.decode("utf-8")
+        print("\nExtracted content:")
+        print(content)
+        
+        # Analyze quality
+        word_count = len(content.split())
+        print(f"\nWord count: {word_count}")
+        
+        if has_openai and word_count < 10:
+            print("Warning: Expected more detailed output with OpenAI enabled")
+    else:
+        print(f"Error: {response.json()}")
+
+# Test
+test_image_conversion("screenshot.png")
+```
+
+## Troubleshooting
+
+<Accordion title="Images not using OpenAI">
+  **Symptoms**: Image conversion output is minimal or generic.
+
+  **Solutions**:
+  1. Verify API key is set: `echo $OPENAI_API_KEY`
+  2. Check for typos in environment variable name
+  3. Restart the API server after setting the key
+  4. Check server logs for OpenAI initialization errors
+  5. Verify API key is valid and has credits
+</Accordion>
+
+<Accordion title="OpenAI quota exceeded">
+  **Symptoms**: Conversions fail or return errors after several requests.
+
+  **Solutions**:
+  1. Check your OpenAI account usage and billing
+  2. Set up usage limits in OpenAI dashboard
+  3. Temporarily disable OpenAI: `unset OPENAI_API_KEY`
+  4. Consider upgrading your OpenAI plan
+</Accordion>
+
+<Accordion title="Slow conversion with images">
+  **Symptoms**: Image conversions take significantly longer than other files.
+
+  **Solutions**:
+  1. This is expected - GPT-4 Vision processing takes time
+  2. Typical response: 2-10 seconds per image
+  3. Consider resizing very large images before upload
+  4. For batch processing, implement queue system
+  5. Disable OpenAI for time-critical operations
+</Accordion>
+
+<Accordion title="Import error: openai package">
+  **Symptoms**: Server fails to start or logs show import errors.
+
+  **Solutions**:
+  ```bash
+  # Install OpenAI package
+  pip install openai
+  
+  # Or use requirements.txt
+  pip install -r requirements.txt
+  ```
+  
+  If you don't need OpenAI, the API will work fine without the package installed.
+</Accordion>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Secure API Keys" icon="lock">
+    Never commit `.env` files to version control. Use environment variables in production.
+  </Card>
+  
+  <Card title="Monitor Costs" icon="chart-line">
+    Set up billing alerts in your OpenAI account to avoid unexpected charges.
+  </Card>
+  
+  <Card title="Optimize Images" icon="image">
+    Resize or compress large images before processing to reduce token costs.
+  </Card>
+  
+  <Card title="Graceful Degradation" icon="shield-check">
+    Design your application to work without OpenAI as a fallback.
+  </Card>
+</CardGroup>
+
+## Comparison: With vs Without OpenAI
+
+### Example: Screenshot of Code
+
+**Input**: `code_screenshot.png` (screenshot of Python function)
+
+**Without OpenAI**:
+```markdown
+# code_screenshot
+
+![Image](code_screenshot.png)
+```
+
+**With OpenAI**:
+```markdown
+# code_screenshot
+
+The image shows a Python function named `process_user_data` that takes a list of user
+IDs and returns processed results. The function includes:
+
+- Input validation checking for empty lists
+- A try-except block for error handling
+- Logging statements for debugging
+- A for loop iterating over user IDs
+- A final return statement with processed results
+
+The code uses the `logging` module and appears to be part of a larger data processing system.
+```
+
+### Example: Diagram or Chart
+
+**Input**: `architecture_diagram.png` (system architecture)
+
+**Without OpenAI**:
+```markdown
+# architecture_diagram
+
+![Image](architecture_diagram.png)
+```
+
+**With OpenAI**:
+```markdown
+# architecture_diagram
+
+The diagram illustrates a three-tier architecture:
+
+1. **Frontend Layer**: React application served by NGINX
+2. **API Layer**: FastAPI service handling requests
+3. **Database Layer**: PostgreSQL database with Redis cache
+
+Components are connected with labeled arrows showing data flow:
+- HTTP requests from frontend to API
+- SQL queries from API to database
+- Cache lookups between API and Redis
+
+The system includes a message queue (RabbitMQ) for asynchronous task processing.
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Convert to Markdown" icon="file-import" href="/guides/convert-to-markdown">
+    Learn more about document and image conversion
+  </Card>
+  <Card title="Configuration" icon="gear" href="/deployment/environment">
+    See all available configuration options
+  </Card>
+</CardGroup>

@@ -1,0 +1,175 @@
+---
+title: 'GET /convert/templates'
+description: 'List available default templates'
+---
+
+## Endpoint
+
+```http
+GET /convert/templates
+```
+
+Returns information about which default templates are available on the server. Use this endpoint to check if templates have been generated successfully.
+
+## Request
+
+No parameters required. This is a simple GET request.
+
+## Response
+
+### Success (200 OK)
+
+Returns a JSON object indicating template availability.
+
+```json
+{
+  "default_templates": {
+    "docx": true,
+    "pptx": true
+  }
+}
+```
+
+<ResponseField name="default_templates" type="object">
+  Object containing template availability for each format.
+  
+  <Expandable title="Properties">
+    <ResponseField name="docx" type="boolean">
+      Whether the default DOCX template exists on the server.
+      
+      `true` = Template file exists at `app/templates/default.docx`
+      
+      `false` = Template not found
+    </ResponseField>
+    
+    <ResponseField name="pptx" type="boolean">
+      Whether the default PPTX template exists on the server.
+      
+      `true` = Template file exists at `app/templates/default.pptx`
+      
+      `false` = Template not found
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### cURL
+
+```bash
+curl http://localhost:8000/convert/templates
+```
+
+### Python
+
+```python
+import requests
+
+url = "http://localhost:8000/convert/templates"
+response = requests.get(url)
+
+if response.status_code == 200:
+    templates = response.json()
+    print(f"DOCX template available: {templates['default_templates']['docx']}")
+    print(f"PPTX template available: {templates['default_templates']['pptx']}")
+```
+
+### JavaScript (Fetch)
+
+```javascript
+const response = await fetch('http://localhost:8000/convert/templates');
+
+if (response.ok) {
+  const data = await response.json();
+  console.log('Available templates:', data.default_templates);
+  
+  if (data.default_templates.docx) {
+    console.log('✓ DOCX template is available');
+  }
+  
+  if (data.default_templates.pptx) {
+    console.log('✓ PPTX template is available');
+  }
+}
+```
+
+### JavaScript (Axios)
+
+```javascript
+import axios from 'axios';
+
+const response = await axios.get('http://localhost:8000/convert/templates');
+const { default_templates } = response.data;
+
+console.log('Templates:', default_templates);
+```
+
+## Use Cases
+
+### Health Check
+
+Use this endpoint to verify that the server has generated default templates successfully during startup.
+
+```python
+def check_server_ready(base_url: str) -> bool:
+    """Check if server is ready with templates."""
+    try:
+        response = requests.get(f"{base_url}/convert/templates")
+        if response.status_code == 200:
+            templates = response.json()["default_templates"]
+            return templates["docx"] and templates["pptx"]
+    except Exception:
+        return False
+    return False
+```
+
+### UI Feature Detection
+
+Dynamically enable/disable UI features based on template availability:
+
+```javascript
+async function checkTemplateSupport() {
+  const response = await fetch('/convert/templates');
+  const data = await response.json();
+  
+  // Enable/disable features based on availability
+  if (!data.default_templates.docx) {
+    console.warn('DOCX template not available');
+    // Disable or show warning for DOCX conversion
+  }
+  
+  if (!data.default_templates.pptx) {
+    console.warn('PPTX template not available');
+    // Disable or show warning for PPTX conversion
+  }
+}
+```
+
+## Template Generation
+
+Default templates are automatically generated during server startup in the `lifespan` function (see `/home/daytona/workspace/source/app/main.py:11-15`).
+
+The templates are created using Pandoc's built-in reference documents:
+
+- **DOCX**: Generated from Pandoc's default DOCX template
+- **PPTX**: Generated from Pandoc's default PPTX template
+
+Templates are stored in the `app/templates/` directory.
+
+<Note>
+If a template file exists, it will not be regenerated. To regenerate templates, delete the existing files and restart the server.
+</Note>
+
+## Notes
+
+<Note>
+This endpoint is useful for monitoring and health checking in production deployments.
+</Note>
+
+<Note>
+HTML format does not use templates, so it's not included in the response.
+</Note>
+
+<Warning>
+If templates are not available (`false`), the `/convert` endpoint can still work with `use_default_template=false` or by providing a custom template.
+</Warning>

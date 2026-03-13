@@ -1,0 +1,181 @@
+---
+title: 'File Upload Limits'
+description: 'Configure and understand file size limits for uploads'
+icon: 'file-arrow-up'
+---
+
+## Overview
+
+The MarkItDown API enforces file size limits on all upload endpoints to prevent abuse and ensure service stability. File size validation occurs before processing begins.
+
+## Configuration
+
+### MAX_UPLOAD_MB
+
+The maximum file size is configured via the `MAX_UPLOAD_MB` environment variable:
+
+```python app/config.py
+# Max upload size in MB
+MAX_UPLOAD_MB: int = int(os.getenv("MAX_UPLOAD_MB", "50"))
+MAX_UPLOAD_BYTES: int = MAX_UPLOAD_MB * 1024 * 1024
+```
+
+<ParamField path="MAX_UPLOAD_MB" type="int" default="50">
+  Maximum file size in megabytes. The value is converted to bytes internally as `MAX_UPLOAD_BYTES`.
+</ParamField>
+
+### Setting the Limit
+
+<CodeGroup>
+
+```bash .env (Default)
+MAX_UPLOAD_MB=50
+```
+
+```bash .env (Increased Limit)
+MAX_UPLOAD_MB=100
+```
+
+```bash .env (Reduced Limit)
+MAX_UPLOAD_MB=10
+```
+
+</CodeGroup>
+
+## Default Limit
+
+If `MAX_UPLOAD_MB` is not set, the API defaults to:
+
+<Note>
+  **50 MB** per file
+</Note>
+
+## Validation Logic
+
+File size validation is performed at the beginning of each upload endpoint:
+
+### Convert to Markdown Endpoint
+
+```python app/routers/convert_to_md.py
+for f in files:
+    # Read size without consuming the stream
+    content = await f.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File '{f.filename}' exceeds the {MAX_UPLOAD_BYTES // (1024*1024)} MB limit",
+        )
+    # Reset so the service can read it again
+    await f.seek(0)
+```
+
+### Convert from Markdown Endpoint
+
+```python app/routers/convert_from_md.py
+md_content = await file.read()
+if len(md_content) > MAX_UPLOAD_BYTES:
+    raise HTTPException(status_code=413, detail="File too large")
+```
+
+<Info>
+  The validation reads the entire file into memory to check its size, then resets the stream for processing.
+</Info>
+
+## Error Response
+
+When a file exceeds the size limit, the API returns a **413 Payload Too Large** error:
+
+### Response Format
+
+```json
+{
+  "detail": "File 'document.pdf' exceeds the 50 MB limit"
+}
+```
+
+<ResponseField name="detail" type="string">
+  Human-readable error message indicating which file exceeded the limit and what the current limit is.
+</ResponseField>
+
+### Example Error
+
+<CodeGroup>
+
+```bash cURL Request
+curl -X POST "http://localhost:8000/upload" \
+     -F "files=@large-file.pdf"
+```
+
+```json Response (413 Error)
+{
+  "detail": "File 'large-file.pdf' exceeds the 50 MB limit"
+}
+```
+
+</CodeGroup>
+
+## HTTP Status Code
+
+<ResponseField name="status_code" type="int" default="413">
+  **413 Payload Too Large** - Indicates the request payload exceeds the server's size limit.
+</ResponseField>
+
+## Multi-File Uploads
+
+For the `/upload` endpoint which accepts multiple files:
+
+- Each file is validated individually
+- If **any** file exceeds the limit, the entire request is rejected
+- The error message identifies which specific file exceeded the limit
+- No files are processed if validation fails
+
+<Warning>
+  When uploading multiple files, ensure **all files** are under the size limit. The API will reject the entire batch if even one file is too large.
+</Warning>
+
+## Best Practices
+
+<Accordion title="Optimize File Sizes Before Upload">
+  - Compress images before including them in documents
+  - Remove unnecessary embedded media
+  - Split large documents into smaller files
+</Accordion>
+
+<Accordion title="Handle 413 Errors Gracefully">
+  ```javascript
+  try {
+    const response = await fetch('/upload', {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (response.status === 413) {
+      console.error('File too large:', await response.json());
+      // Prompt user to reduce file size
+    }
+  } catch (error) {
+    console.error('Upload failed:', error);
+  }
+  ```
+</Accordion>
+
+<Accordion title="Display Limit to Users">
+  Show the current upload limit in your UI to help users avoid errors:
+  
+  ```javascript
+  const MAX_SIZE_MB = 50; // Match your server configuration
+  
+  if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+    alert(`File exceeds ${MAX_SIZE_MB} MB limit`);
+  }
+  ```
+</Accordion>
+
+## Performance Considerations
+
+<Note>
+  - Larger limits may increase memory usage and processing time
+  - Consider your server's available RAM when setting `MAX_UPLOAD_MB`
+  - Monitor file upload patterns to determine optimal limits
+  - For very large documents, consider implementing chunked uploads
+</Note>

@@ -1,0 +1,139 @@
+---
+title: 'API Overview'
+description: 'Introduction to the MarkItDown API'
+---
+
+## Base URL
+
+All API requests should be made to your deployed instance:
+
+```
+http://localhost:8000
+```
+
+Or your production URL:
+
+```
+https://your-domain.com
+```
+
+## Authentication
+
+The MarkItDown API does not require authentication. All endpoints are publicly accessible.
+
+<Note>
+In production deployments, consider implementing authentication at the infrastructure level (e.g., API Gateway, reverse proxy) to control access.
+</Note>
+
+## CORS Configuration
+
+The API supports Cross-Origin Resource Sharing (CORS). By default, the following origins are allowed:
+
+- `http://localhost:5173`
+
+You can configure additional origins using the `CORS_ORIGINS` environment variable:
+
+```bash
+CORS_ORIGINS="http://localhost:5173,https://myapp.com"
+```
+
+### CORS Settings
+
+- **Allowed Origins**: Configurable via `CORS_ORIGINS` (comma-separated)
+- **Credentials**: Enabled
+- **Methods**: All methods (`*`)
+- **Headers**: All headers (`*`)
+
+## File Upload Limits
+
+The API enforces a maximum upload size to prevent abuse:
+
+- **Default**: 50 MB per file
+- **Configurable**: Set `MAX_UPLOAD_MB` environment variable
+
+```bash
+MAX_UPLOAD_MB=100  # Allow 100 MB uploads
+```
+
+Files exceeding this limit will return a `413 Payload Too Large` error.
+
+## Response Format
+
+Most endpoints return binary file content with appropriate headers:
+
+### Success Response
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="output.md"
+```
+
+### Error Response
+
+Errors return JSON with a detail message:
+
+```json
+{
+  "detail": "Error message describing what went wrong"
+}
+```
+
+## Common Status Codes
+
+<ResponseField name="200" type="Success">
+  Request completed successfully. Response body contains the converted file.
+</ResponseField>
+
+<ResponseField name="400" type="Bad Request">
+  Invalid request parameters or unsupported format.
+</ResponseField>
+
+<ResponseField name="413" type="Payload Too Large">
+  Uploaded file exceeds the maximum size limit.
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  Server encountered an error during conversion.
+</ResponseField>
+
+<ResponseField name="503" type="Service Unavailable">
+  Pandoc service is unavailable or failed to process the request.
+</ResponseField>
+
+## Content Types
+
+### Request Content Types
+
+- `multipart/form-data` - Used for file uploads
+
+### Response Content Types
+
+- `text/markdown` - Markdown files
+- `application/vnd.openxmlformats-officedocument.wordprocessingml.document` - DOCX files
+- `application/vnd.openxmlformats-officedocument.presentationml.presentation` - PPTX files
+- `text/html` - HTML files
+- `application/zip` - ZIP archives (multiple files or Excel sheets)
+- `application/json` - Error responses and JSON endpoints
+
+## Optional Features
+
+### OpenAI Integration
+
+For AI-enhanced image OCR, set the `OPENAI_API_KEY` environment variable:
+
+```bash
+OPENAI_API_KEY="sk-..."
+```
+
+<Note>
+This is optional. The API works without it, but image conversion quality may be improved with AI-enhanced OCR.
+</Note>
+
+## Rate Limiting
+
+The API does not implement built-in rate limiting. Consider adding rate limiting at the infrastructure level for production deployments.
+
+## API Version
+
+Current version: **1.0.0**

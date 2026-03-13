@@ -1,97 +1,53 @@
 ---
 title: "Introduction"
-description: "Welcome to the new home for your documentation"
+description: "FastAPI service for converting documents to Markdown and Markdown to DOCX/PPTX/HTML"
 ---
 
-## Setting up
+# Welcome to MarkItDown API
 
-Get your documentation site up and running in minutes.
+MarkItDown API is a powerful FastAPI-based document conversion service that seamlessly transforms documents between formats. Convert PDFs, Word documents, Excel spreadsheets, PowerPoint presentations, and images to clean Markdown, or convert Markdown back to professional DOCX, PPTX, and HTML documents.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+## Key Features
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Convert to Markdown" icon="file-lines" href="/guides/convert-to-markdown">
+    Transform PDF, DOCX, XLSX, PPTX, and image files into clean, structured Markdown
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Convert from Markdown" icon="file-word" href="/guides/convert-from-markdown">
+    Generate professional DOCX, PPTX, or HTML documents from Markdown source
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Excel Multi-Sheet Support" icon="table" href="/guides/excel-support">
+    Automatically convert each Excel sheet to formatted Markdown tables
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Custom Templates" icon="palette" href="/guides/custom-templates">
+    Use custom reference templates for DOCX and PPTX generation
   </Card>
-</Columns>
+  <Card title="AI-Enhanced OCR" icon="brain" href="/guides/openai-integration">
+    Optional OpenAI integration for intelligent image description and OCR
+  </Card>
+  <Card title="Docker Ready" icon="docker" href="/deployment/docker">
+    Deploy anywhere with Docker and Azure Container Apps support
+  </Card>
+</CardGroup>
 
-## Create beautiful pages
+## Quick Start
 
-Everything you need to create world-class documentation.
+Get started with MarkItDown API in minutes:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={2}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Set up and run your first conversion
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore all available endpoints
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+</CardGroup>
 
-## Need inspiration?
+## How It Works
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+MarkItDown API leverages two powerful open-source libraries:
+
+- **MarkItDown**: Microsoft's document-to-Markdown converter with support for 20+ file formats
+- **Pandoc**: Universal document converter for generating DOCX, PPTX, and HTML from Markdown
+
+The service provides a clean REST API interface with file upload endpoints, configurable CORS, file size limits, and optional OpenAI integration for enhanced image processing.

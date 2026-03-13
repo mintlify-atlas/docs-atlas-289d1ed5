@@ -1,0 +1,254 @@
+---
+title: Docker Deployment
+description: Deploy the MarkItDown API using Docker and Docker Compose
+---
+
+The MarkItDown API is containerized and ready to deploy with Docker. This guide covers local development and production deployment using Docker Compose.
+
+## Prerequisites
+
+- Docker 20.10 or later
+- Docker Compose 2.0 or later
+- A `.env` file with your configuration
+
+## Quick Start
+
+<Steps>
+
+<Step title="Clone the repository">
+
+```bash
+git clone <your-repository-url>
+cd markitdown-api
+```
+
+</Step>
+
+<Step title="Configure environment variables">
+
+Copy the example environment file and configure your settings:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` to set your configuration. See the [Environment Configuration](/deployment/environment) page for details.
+
+</Step>
+
+<Step title="Build and start the container">
+
+```bash
+docker-compose up -d
+```
+
+The API will be available at `http://localhost:8000`.
+
+</Step>
+
+<Step title="Verify the deployment">
+
+Check the health endpoint:
+
+```bash
+curl http://localhost:8000/health
+```
+
+You should see:
+
+```json
+{"status": "ok"}
+```
+
+</Step>
+
+</Steps>
+
+## Dockerfile Overview
+
+The application uses a multi-stage build optimized for production:
+
+```dockerfile
+FROM python:3.12-slim
+
+# libmagic1 is required by markitdown for file type detection
+# pandoc is NOT needed here — pypandoc_binary bundles it
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libmagic1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python dependencies first (layer cache)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Non-root user (required by Azure Container Apps)
+RUN adduser --disabled-password --gecos "" appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+<Note>
+The Dockerfile includes `libmagic1` for file type detection. The `pypandoc_binary` package bundles Pandoc, so no separate Pandoc installation is needed.
+</Note>
+
+## Docker Compose Configuration
+
+The `docker-compose.yml` file provides a complete setup:
+
+```yaml
+services:
+  api:
+    # For local development: use `build: .`
+    # For Azure: comment out `build` and uncomment `image` with your ACR
+    build: .
+    # image: ${ACR_REGISTRY}.azurecr.io/markitdown-api:${IMAGE_TAG:-latest}
+    container_name: markitdown-api
+    ports:
+      - "8000:8000"
+    environment:
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-50}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+```
+
+### Health Check
+
+The container includes a health check that:
+- Runs every 30 seconds
+- Times out after 10 seconds
+- Allows 3 retries before marking unhealthy
+- Waits 15 seconds after container start before first check
+
+## Common Docker Commands
+
+<Tabs>
+  <Tab title="Development">
+    ```bash
+    # Start in development mode with logs
+    docker-compose up
+
+    # Rebuild after code changes
+    docker-compose up --build
+
+    # View logs
+    docker-compose logs -f
+    ```
+  </Tab>
+  
+  <Tab title="Production">
+    ```bash
+    # Start in detached mode
+    docker-compose up -d
+
+    # Check container status
+    docker-compose ps
+
+    # View logs
+    docker-compose logs -f api
+
+    # Stop the service
+    docker-compose down
+    ```
+  </Tab>
+  
+  <Tab title="Maintenance">
+    ```bash
+    # Restart the service
+    docker-compose restart
+
+    # Update and restart
+    git pull
+    docker-compose up -d --build
+
+    # Remove containers and volumes
+    docker-compose down -v
+    ```
+  </Tab>
+</Tabs>
+
+## Building for Production
+
+To build and tag an image for production:
+
+```bash
+# Build with a specific tag
+docker build -t markitdown-api:1.0.0 .
+
+# Tag for your registry
+docker tag markitdown-api:1.0.0 myregistry.azurecr.io/markitdown-api:1.0.0
+
+# Push to registry
+docker push myregistry.azurecr.io/markitdown-api:1.0.0
+```
+
+<Info>
+For Azure Container Registry deployment, see the [Azure Deployment](/deployment/azure) guide.
+</Info>
+
+## Security Considerations
+
+<Warning>
+The container runs as a non-root user (`appuser`) for security. This is required by Azure Container Apps and recommended for all deployments.
+</Warning>
+
+### Best Practices
+
+- Never commit `.env` files to version control
+- Use secrets management for `OPENAI_API_KEY` in production
+- Keep Docker images updated with security patches
+- Use specific image tags instead of `latest` in production
+- Limit container resources using Docker Compose resource constraints
+
+## Troubleshooting
+
+### Container won't start
+
+Check the logs:
+
+```bash
+docker-compose logs api
+```
+
+Common issues:
+- Missing or invalid `.env` file
+- Port 8000 already in use
+- Insufficient disk space
+
+### Health check failing
+
+Test the health endpoint manually:
+
+```bash
+docker exec markitdown-api python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/health').read())"
+```
+
+### Permission errors
+
+Ensure the non-root user has proper permissions:
+
+```bash
+# Rebuild the image
+docker-compose up --build
+```
+
+## Next Steps
+
+- Learn about [Azure Container Apps deployment](/deployment/azure)
+- Configure [environment variables](/deployment/environment)
+- Set up monitoring and logging for your containers

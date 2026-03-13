@@ -1,0 +1,317 @@
+---
+title: Converting Documents to Markdown
+description: Learn how to convert various document formats to Markdown using the MarkItDown API
+---
+
+The MarkItDown API provides a powerful `/upload` endpoint that converts documents to Markdown format. This guide covers supported formats, usage patterns, and handling different file scenarios.
+
+## Supported File Formats
+
+The API uses the MarkItDown library to support a wide range of document formats:
+
+- **Office Documents**: DOCX, PPTX, XLSX
+- **PDF Files**: PDF (with text extraction)
+- **Images**: PNG, JPG, JPEG (with optional OCR via OpenAI)
+- **Web Content**: HTML, XML
+- **Code**: JSON, CSV, and other text-based formats
+- **Excel Files**: XLS, XLSX, XLSM, XLSB (with multi-sheet support)
+
+<Note>
+Excel files with multiple sheets are automatically split into separate Markdown files. See the [Excel Support guide](/guides/excel-support) for details.
+</Note>
+
+## Basic Usage
+
+<Steps>
+  <Step title="Prepare Your File">
+    Ensure your file is under the upload size limit (default: 50 MB). The limit is enforced per file, not per request.
+  </Step>
+
+  <Step title="Make the API Request">
+    Send a POST request to `/upload` with your file(s) as multipart form data.
+  </Step>
+
+  <Step title="Receive the Response">
+    - **Single file, single sheet** → Returns a `.md` file
+    - **Single Excel with multiple sheets** → Returns a `.zip` archive
+    - **Multiple files** → Returns a `.zip` archive
+  </Step>
+</Steps>
+
+## Single File Conversion
+
+Convert a single document to Markdown:
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@document.docx" \
+  -o output.md
+```
+
+### Response
+
+The API returns the Markdown content directly:
+
+```
+Content-Type: text/markdown; charset=utf-8
+Content-Disposition: attachment; filename="document.md"
+```
+
+## Multiple File Conversion
+
+When uploading multiple files, the API automatically creates a ZIP archive:
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@report.docx" \
+  -F "files=@presentation.pptx" \
+  -F "files=@data.pdf" \
+  -o converted_files.zip
+```
+
+### Response
+
+The API returns a ZIP file containing all converted Markdown files:
+
+```
+Content-Type: application/zip
+Content-Disposition: attachment; filename="converted_files.zip"
+```
+
+The ZIP archive structure:
+
+```
+converted_files.zip
+├── report.md
+├── presentation.md
+└── data.md
+```
+
+## Excel File Handling
+
+<Info>
+Excel files with multiple sheets receive special handling. Each sheet becomes a separate Markdown file.
+</Info>
+
+### Single-Sheet Excel
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@simple_data.xlsx" \
+  -o simple_data.md
+```
+
+Returns a single `.md` file.
+
+### Multi-Sheet Excel
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@financial_report.xlsx" \
+  -o financial_report.zip
+```
+
+Returns a ZIP archive with files named using the pattern: `{stem}_{index}_{total}.md`
+
+For example, if `financial_report.xlsx` has 3 sheets:
+
+```
+financial_report.zip
+├── financial_report_1_3.md  # First sheet
+├── financial_report_2_3.md  # Second sheet
+└── financial_report_3_3.md  # Third sheet
+```
+
+See the [Excel Support guide](/guides/excel-support) for implementation details.
+
+## File Size Limits
+
+The API enforces a maximum file size limit per file:
+
+```python
+# Default: 50 MB per file
+MAX_UPLOAD_MB = 50
+```
+
+If a file exceeds the limit, you'll receive a 413 error:
+
+```json
+{
+  "detail": "File 'large_document.pdf' exceeds the 50 MB limit"
+}
+```
+
+<Warning>
+The size limit is checked **per file**, not per request. You can upload multiple files as long as each individual file is under the limit.
+</Warning>
+
+## Error Handling
+
+The API provides clear error messages for common issues:
+
+### No Files Provided
+
+```bash
+curl -X POST http://localhost:8000/upload
+```
+
+**Response (400)**:
+```json
+{
+  "detail": "No files provided"
+}
+```
+
+### File Too Large
+
+**Response (413)**:
+```json
+{
+  "detail": "File 'document.pdf' exceeds the 50 MB limit"
+}
+```
+
+### Conversion Error
+
+**Response (500)**:
+```json
+{
+  "detail": "Error message describing what went wrong"
+}
+```
+
+## Implementation Details
+
+The conversion logic is implemented in `app/routers/convert_to_md.py` and `app/services/markitdown_service.py`:
+
+### Endpoint Handler
+
+```python
+@router.post("/upload")
+async def upload_and_convert(files: list[UploadFile] = File(...)):
+    """
+    Convert one or more files to Markdown.
+
+    - Single file, single sheet → returns a .md file
+    - Single Excel with multiple sheets → returns a .zip
+    - Multiple files → returns a .zip
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    for f in files:
+        content = await f.read()
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File '{f.filename}' exceeds the {MAX_UPLOAD_BYTES // (1024*1024)} MB limit",
+            )
+        await f.seek(0)
+
+    content_bytes, filename, media_type = await convert_files_to_markdown(files)
+
+    return Response(
+        content=content_bytes,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+```
+
+**Source**: `app/routers/convert_to_md.py:10-42`
+
+### Service Logic
+
+The service handles Excel detection and multi-sheet conversion:
+
+```python
+EXCEL_EXTENSIONS = {".xlsx", ".xls", ".xlsm", ".xlsb"}
+
+async def convert_files_to_markdown(files: list) -> Tuple[bytes, str, str]:
+    converter = _get_converter()
+    results: List[Tuple[str, str]] = []
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+
+        for upload in files:
+            raw = await upload.read()
+            tmp_file = tmp / upload.filename
+            tmp_file.write_bytes(raw)
+
+            if _is_excel(upload.filename):
+                results.extend(_convert_excel(tmp_file, upload.filename))
+            else:
+                result = converter.convert(str(tmp_file))
+                stem = Path(upload.filename).stem
+                results.append((f"{stem}.md", result.text_content))
+
+    if len(results) == 1:
+        filename, content = results[0]
+        return content.encode("utf-8"), filename, "text/markdown; charset=utf-8"
+
+    # Multiple files → ZIP
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for filename, content in results:
+            zf.writestr(filename, content)
+    return buf.getvalue(), "converted_files.zip", "application/zip"
+```
+
+**Source**: `app/services/markitdown_service.py:92-129`
+
+## Advanced Examples
+
+### Converting Images with OCR
+
+If OpenAI API is configured, images will be processed with OCR:
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@screenshot.png" \
+  -o screenshot.md
+```
+
+See the [OpenAI Integration guide](/guides/openai-integration) for setup details.
+
+### Batch Processing
+
+Convert an entire directory of files:
+
+```bash
+for file in documents/*; do
+  curl -X POST http://localhost:8000/upload \
+    -F "files=@$file" \
+    -o "$(basename "$file" | sed 's/\.[^.]*$/.md/')"
+done
+```
+
+### Using with Python
+
+```python
+import requests
+
+with open("document.docx", "rb") as f:
+    files = {"files": f}
+    response = requests.post(
+        "http://localhost:8000/upload",
+        files=files
+    )
+
+if response.ok:
+    with open("output.md", "wb") as out:
+        out.write(response.content)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Excel Support" icon="table" href="/guides/excel-support">
+    Learn about multi-sheet Excel conversion and table formatting
+  </Card>
+  <Card title="OpenAI Integration" icon="brain" href="/guides/openai-integration">
+    Enable AI-powered OCR for images and scanned documents
+  </Card>
+  <Card title="Convert from Markdown" icon="file-export" href="/guides/convert-from-markdown">
+    Convert Markdown back to DOCX, PPTX, or HTML
+  </Card>
+</CardGroup>

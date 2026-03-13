@@ -1,0 +1,441 @@
+---
+title: Excel Multi-Sheet Support
+description: Understanding how the MarkItDown API handles Excel workbooks with multiple sheets
+---
+
+The MarkItDown API provides special handling for Excel files, automatically detecting multi-sheet workbooks and converting each sheet to a separate Markdown file with properly formatted tables.
+
+## Supported Excel Formats
+
+The API recognizes these Excel file extensions:
+
+- `.xlsx` - Excel 2007+ (Office Open XML)
+- `.xls` - Excel 97-2003
+- `.xlsm` - Excel Macro-Enabled Workbook
+- `.xlsb` - Excel Binary Workbook
+
+```python
+# app/services/markitdown_service.py:12
+EXCEL_EXTENSIONS = {".xlsx", ".xls", ".xlsm", ".xlsb"}
+```
+
+**Source**: `app/services/markitdown_service.py:12`
+
+## Single-Sheet Behavior
+
+When an Excel file contains only one sheet, the API returns a single Markdown file:
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@sales_data.xlsx" \
+  -o sales_data.md
+```
+
+**Response**:
+```
+Content-Type: text/markdown; charset=utf-8
+Content-Disposition: attachment; filename="sales_data.md"
+```
+
+## Multi-Sheet Behavior
+
+When an Excel file contains multiple sheets, the API automatically:
+
+1. Detects all sheets in the workbook
+2. Converts each sheet to a separate Markdown file
+3. Names files using the pattern: `{stem}_{index}_{total}.md`
+4. Returns a ZIP archive containing all Markdown files
+
+<Steps>
+  <Step title="Upload Excel File">
+    Send an Excel workbook with multiple sheets to `/upload`
+  </Step>
+
+  <Step title="Sheet Detection">
+    The API loads the workbook and counts all sheets
+  </Step>
+
+  <Step title="Individual Conversion">
+    Each sheet is converted to a Markdown table
+  </Step>
+
+  <Step title="ZIP Creation">
+    All Markdown files are packaged into a ZIP archive
+  </Step>
+</Steps>
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@financial_report.xlsx" \
+  -o financial_report.zip
+```
+
+If `financial_report.xlsx` contains 3 sheets:
+- Q1 Results
+- Q2 Results
+- Annual Summary
+
+**Response**:
+```
+Content-Type: application/zip
+Content-Disposition: attachment; filename="converted_files.zip"
+```
+
+**ZIP Contents**:
+```
+financial_report.zip
+├── financial_report_1_3.md  # Q1 Results
+├── financial_report_2_3.md  # Q2 Results
+└── financial_report_3_3.md  # Annual Summary
+```
+
+## File Naming Convention
+
+The naming pattern provides useful metadata:
+
+```
+{stem}_{index}_{total}.md
+```
+
+- **stem**: Original filename without extension
+- **index**: Sheet number (1-based)
+- **total**: Total number of sheets
+
+<Accordion title="Why this naming pattern?">
+  This pattern allows you to:
+  - Identify which file belongs to which workbook
+  - Know the order of sheets without opening the files
+  - Understand how many sheets were in the original workbook
+  - Process files programmatically with consistent naming
+</Accordion>
+
+### Examples
+
+| Original File | Sheets | Output Files |
+|--------------|--------|-------------|
+| `data.xlsx` | 2 | `data_1_2.md`, `data_2_2.md` |
+| `report_2024.xlsx` | 5 | `report_2024_1_5.md` ... `report_2024_5_5.md` |
+| `simple.xlsx` | 1 | `simple.md` (no numbering) |
+
+## Implementation Details
+
+### Excel Detection
+
+The service checks file extensions to identify Excel files:
+
+```python
+# app/services/markitdown_service.py:27-28
+def _is_excel(filename: str) -> bool:
+    return Path(filename).suffix.lower() in EXCEL_EXTENSIONS
+```
+
+**Source**: `app/services/markitdown_service.py:27-28`
+
+### Sheet Conversion Logic
+
+The multi-sheet conversion process:
+
+```python
+# app/services/markitdown_service.py:71-89
+def _convert_excel(file_path: Path, original_name: str) -> List[Tuple[str, str]]:
+    """
+    Convert every sheet in an Excel file to a separate markdown string.
+    Returns list of (md_filename, md_content).
+    Naming: {stem}_{index}_{total}.md  e.g. finanzas_1_3.md
+    """
+    wb = openpyxl.load_workbook(file_path, data_only=True)
+    sheet_names = wb.sheetnames
+    total = len(sheet_names)
+    stem = Path(original_name).stem
+    results: List[Tuple[str, str]] = []
+
+    for idx, name in enumerate(sheet_names, start=1):
+        ws = wb[name]
+        md_filename = f"{stem}_{idx}_{total}.md"
+        md_content = _sheet_to_markdown(ws)
+        results.append((md_filename, md_content))
+
+    return results
+```
+
+**Source**: `app/services/markitdown_service.py:71-89`
+
+<Note>
+The workbook is loaded with `data_only=True`, which means formulas are evaluated and only their results are included in the Markdown output.
+</Note>
+
+### Sheet to Markdown Conversion
+
+Each sheet is converted to a Markdown table:
+
+```python
+# app/services/markitdown_service.py:39-68
+def _sheet_to_markdown(ws) -> str:
+    rows = list(ws.iter_rows(values_only=True))
+
+    # Drop trailing fully-empty rows
+    while rows and all(c is None for c in rows[-1]):
+        rows.pop()
+
+    if not rows:
+        return f"# {ws.title}\n\n*Empty sheet*\n"
+
+    max_cols = max(len(row) for row in rows)
+
+    def pad(row: tuple, length: int) -> List[str]:
+        cells = [_cell_value(c) for c in row]
+        cells += [""] * (length - len(cells))
+        return cells
+
+    header = pad(rows[0], max_cols)
+    separator = ["---"] * max_cols
+
+    lines = [
+        f"# {ws.title}\n",
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join(separator) + " |",
+    ]
+
+    for row in rows[1:]:
+        lines.append("| " + " | ".join(pad(row, max_cols)) + " |")
+
+    return "\n".join(lines) + "\n"
+```
+
+**Source**: `app/services/markitdown_service.py:39-68`
+
+## Table Formatting
+
+The conversion handles various data scenarios:
+
+### Cell Value Sanitization
+
+Special characters are escaped to maintain valid Markdown tables:
+
+```python
+# app/services/markitdown_service.py:31-36
+def _cell_value(cell) -> str:
+    if cell is None:
+        return ""
+    value = str(cell)
+    # Escape pipe and newlines so the markdown table stays valid
+    return value.replace("|", "\\|").replace("\n", " ").replace("\r", "")
+```
+
+**Source**: `app/services/markitdown_service.py:31-36`
+
+<Info>
+Pipe characters (`|`) are escaped as `\|`, and newlines are converted to spaces to maintain table structure.
+</Info>
+
+### Empty Sheets
+
+Empty sheets are handled gracefully:
+
+```python
+if not rows:
+    return f"# {ws.title}\n\n*Empty sheet*\n"
+```
+
+Output:
+```markdown
+# Sheet Name
+
+*Empty sheet*
+```
+
+### Trailing Empty Rows
+
+Empty rows at the end of sheets are automatically removed:
+
+```python
+while rows and all(c is None for c in rows[-1]):
+    rows.pop()
+```
+
+### Example Output
+
+Given this Excel data:
+
+| Product | Q1 | Q2 | Q3 |
+|---------|----|----|----|
+| Widget A | 100 | 150 | 200 |
+| Widget B | 75 | 80 | 90 |
+
+The Markdown output:
+
+```markdown
+# Sales Data
+
+| Product | Q1 | Q2 | Q3 |
+| --- | --- | --- | --- |
+| Widget A | 100 | 150 | 200 |
+| Widget B | 75 | 80 | 90 |
+```
+
+## Service Integration
+
+The main service orchestrates file processing:
+
+```python
+# app/services/markitdown_service.py:92-129
+async def convert_files_to_markdown(files: list) -> Tuple[bytes, str, str]:
+    """
+    Convert uploaded files to markdown.
+
+    Returns (content_bytes, download_filename, media_type).
+    - Single result  → raw .md file
+    - Multiple results → .zip containing all .md files
+    """
+    converter = _get_converter()
+    results: List[Tuple[str, str]] = []  # (filename, content)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+
+        for upload in files:
+            raw = await upload.read()
+            tmp_file = tmp / upload.filename
+            tmp_file.write_bytes(raw)
+
+            if _is_excel(upload.filename):
+                results.extend(_convert_excel(tmp_file, upload.filename))
+            else:
+                result = converter.convert(str(tmp_file))
+                stem = Path(upload.filename).stem
+                results.append((f"{stem}.md", result.text_content))
+
+    if len(results) == 1:
+        filename, content = results[0]
+        return content.encode("utf-8"), filename, "text/markdown; charset=utf-8"
+
+    # Multiple files → ZIP
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for filename, content in results:
+            zf.writestr(filename, content)
+    return buf.getvalue(), "converted_files.zip", "application/zip"
+```
+
+**Source**: `app/services/markitdown_service.py:92-129`
+
+## Advanced Examples
+
+### Processing Multiple Workbooks
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@q1_report.xlsx" \
+  -F "files=@q2_report.xlsx" \
+  -F "files=@q3_report.xlsx" \
+  -o quarterly_reports.zip
+```
+
+If each workbook has 3 sheets, the ZIP will contain:
+```
+quarterly_reports.zip
+├── q1_report_1_3.md
+├── q1_report_2_3.md
+├── q1_report_3_3.md
+├── q2_report_1_3.md
+├── q2_report_2_3.md
+├── q2_report_3_3.md
+├── q3_report_1_3.md
+├── q3_report_2_3.md
+└── q3_report_3_3.md
+```
+
+### Python Client with Sheet Processing
+
+```python
+import requests
+import zipfile
+import io
+
+def extract_excel_sheets(excel_path: str, output_dir: str):
+    """Upload Excel file and extract all sheets as Markdown."""
+    with open(excel_path, "rb") as f:
+        files = {"files": f}
+        response = requests.post(
+            "http://localhost:8000/upload",
+            files=files
+        )
+    
+    if response.ok:
+        # Check if response is ZIP
+        if response.headers["Content-Type"] == "application/zip":
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+                zf.extractall(output_dir)
+                print(f"Extracted {len(zf.namelist())} sheets to {output_dir}")
+                for name in zf.namelist():
+                    print(f"  - {name}")
+        else:
+            # Single sheet
+            output_path = f"{output_dir}/output.md"
+            with open(output_path, "wb") as out:
+                out.write(response.content)
+            print(f"Saved single sheet to {output_path}")
+    else:
+        print(f"Error: {response.json()}")
+
+# Usage
+extract_excel_sheets("financial_data.xlsx", "./markdown_output")
+```
+
+### Bash Script to Extract and Rename
+
+```bash
+#!/bin/bash
+# Extract sheets from Excel and rename based on content
+
+excel_file="$1"
+output_dir="./sheets"
+
+mkdir -p "$output_dir"
+
+# Convert and download ZIP
+curl -X POST http://localhost:8000/upload \
+  -F "files=@$excel_file" \
+  -o temp.zip \
+  --silent
+
+# Extract
+unzip -q temp.zip -d "$output_dir"
+rm temp.zip
+
+echo "Extracted sheets:"
+ls -1 "$output_dir"
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Formula Handling" icon="calculator">
+    Excel formulas are evaluated to their computed values. The formulas themselves are not included in the Markdown output.
+  </Card>
+  
+  <Card title="Large Workbooks" icon="database">
+    Each file must be under the upload size limit (default 50 MB). Consider splitting very large workbooks.
+  </Card>
+  
+  <Card title="Sheet Order" icon="arrow-down-1-9">
+    Sheets are processed in the order they appear in the workbook. The index in filenames reflects this order.
+  </Card>
+  
+  <Card title="Special Characters" icon="shield">
+    Cell values with pipes, newlines, or other special characters are automatically sanitized for valid Markdown.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Convert to Markdown" icon="file-import" href="/guides/convert-to-markdown">
+    Learn more about document conversion and supported formats
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/upload">
+    View complete API documentation for the upload endpoint
+  </Card>
+</CardGroup>

@@ -1,0 +1,442 @@
+---
+title: Converting Markdown to Documents
+description: Convert Markdown files to DOCX, PPTX, or HTML using Pandoc templates
+---
+
+The MarkItDown API provides a `/convert` endpoint that transforms Markdown files into various document formats using Pandoc. This guide covers format options, template usage, and practical examples.
+
+## Supported Output Formats
+
+The API supports three output formats:
+
+- **DOCX**: Microsoft Word documents (with template support)
+- **PPTX**: Microsoft PowerPoint presentations (with template support)
+- **HTML**: Standalone HTML documents
+
+<Info>
+DOCX and PPTX formats support custom templates to control styling, fonts, and layouts.
+</Info>
+
+## Basic Conversion
+
+<Steps>
+  <Step title="Prepare Your Markdown File">
+    Create or obtain a Markdown (`.md`) file to convert.
+  </Step>
+
+  <Step title="Choose Output Format">
+    Select from: `docx`, `pptx`, or `html`.
+  </Step>
+
+  <Step title="Submit Conversion Request">
+    POST to `/convert` with your Markdown file and format parameter.
+  </Step>
+
+  <Step title="Download Result">
+    Receive the converted document with proper filename and media type.
+  </Step>
+</Steps>
+
+## Convert to DOCX
+
+Convert Markdown to a Word document:
+
+```bash
+curl -X POST http://localhost:8000/convert \
+  -F "file=@document.md" \
+  -F "format=docx" \
+  -F "use_default_template=true" \
+  -o output.docx
+```
+
+### Response Headers
+
+```
+Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+Content-Disposition: attachment; filename="document.docx"
+```
+
+## Convert to PPTX
+
+Convert Markdown to a PowerPoint presentation:
+
+```bash
+curl -X POST http://localhost:8000/convert \
+  -F "file=@slides.md" \
+  -F "format=pptx" \
+  -F "use_default_template=true" \
+  -o slides.pptx
+```
+
+<Note>
+Pandoc converts level 1 headings (`#`) to slide titles and level 2 headings (`##`) to content sections.
+</Note>
+
+### Markdown Structure for Slides
+
+```markdown
+# Title Slide
+
+Introduction content
+
+# Slide Two
+
+## Key Points
+
+- Point one
+- Point two
+- Point three
+
+# Conclusion
+
+Final thoughts
+```
+
+## Convert to HTML
+
+Convert Markdown to a standalone HTML document:
+
+```bash
+curl -X POST http://localhost:8000/convert \
+  -F "file=@article.md" \
+  -F "format=html" \
+  -F "use_default_template=true" \
+  -o article.html
+```
+
+<Info>
+HTML output uses the `--standalone` flag, generating a complete HTML document with proper `<html>`, `<head>`, and `<body>` tags.
+</Info>
+
+## Using Templates
+
+### Default Templates
+
+The API includes built-in default templates for DOCX and PPTX:
+
+```bash
+curl -X POST http://localhost:8000/convert \
+  -F "file=@document.md" \
+  -F "format=docx" \
+  -F "use_default_template=true" \
+  -o document.docx
+```
+
+**Template generation** happens automatically on first startup:
+
+```python
+# app/services/pandoc_service.py:30-48
+def ensure_default_templates() -> None:
+    """
+    Generate default reference templates using Pandoc on first run.
+    Called at application startup.
+    """
+    pandoc_path = _get_pandoc_path()
+
+    for fmt, filename in [("docx", "default.docx"), ("pptx", "default.pptx")]:
+        dest = TEMPLATES_DIR / filename
+        if not dest.exists():
+            try:
+                result = subprocess.run(
+                    [pandoc_path, "--print-default-data-file", f"reference.{fmt}"],
+                    capture_output=True,
+                    check=True,
+                )
+                dest.write_bytes(result.stdout)
+            except subprocess.CalledProcessError:
+                pass
+```
+
+**Source**: `app/services/pandoc_service.py:30-48`
+
+### Custom Templates
+
+Upload your own reference template to control styling:
+
+```bash
+curl -X POST http://localhost:8000/convert \
+  -F "file=@document.md" \
+  -F "format=docx" \
+  -F "use_default_template=false" \
+  -F "template=@my_template.docx" \
+  -o styled_document.docx
+```
+
+<Warning>
+The template file extension must match the output format. You cannot use a `.docx` template when converting to PPTX.
+</Warning>
+
+### Template Validation
+
+The API validates template compatibility:
+
+```python
+# app/routers/convert_from_md.py:51-58
+if template and template.filename:
+    tmpl_ext = Path(template.filename).suffix.lower().lstrip(".")
+    if fmt in ALLOWED_TEMPLATE_FORMATS and tmpl_ext != fmt:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Template must be a .{fmt} file when converting to {fmt}",
+        )
+    template_bytes = await template.read()
+```
+
+**Source**: `app/routers/convert_from_md.py:51-58`
+
+## Template Options
+
+<Tabs>
+  <Tab title="With Default Template">
+    ```bash
+    curl -X POST http://localhost:8000/convert \
+      -F "file=@document.md" \
+      -F "format=docx" \
+      -F "use_default_template=true" \
+      -o output.docx
+    ```
+    Uses Pandoc's built-in reference document.
+  </Tab>
+
+  <Tab title="With Custom Template">
+    ```bash
+    curl -X POST http://localhost:8000/convert \
+      -F "file=@document.md" \
+      -F "format=docx" \
+      -F "use_default_template=false" \
+      -F "template=@corporate_template.docx" \
+      -o output.docx
+    ```
+    Uses your custom-styled template.
+  </Tab>
+
+  <Tab title="No Template">
+    ```bash
+    curl -X POST http://localhost:8000/convert \
+      -F "file=@document.md" \
+      -F "format=docx" \
+      -F "use_default_template=false" \
+      -o output.docx
+    ```
+    Uses Pandoc's default styling (no reference document).
+  </Tab>
+</Tabs>
+
+## Checking Available Templates
+
+Query which default templates are available on the server:
+
+```bash
+curl http://localhost:8000/convert/templates
+```
+
+**Response**:
+```json
+{
+  "default_templates": {
+    "docx": true,
+    "pptx": true
+  }
+}
+```
+
+### Implementation
+
+```python
+# app/routers/convert_from_md.py:83-92
+@router.get("/convert/templates")
+async def list_default_templates():
+    """Return which default templates are available on the server."""
+    from app.config import TEMPLATES_DIR
+
+    available = {
+        "docx": (TEMPLATES_DIR / "default.docx").exists(),
+        "pptx": (TEMPLATES_DIR / "default.pptx").exists(),
+    }
+    return {"default_templates": available}
+```
+
+**Source**: `app/routers/convert_from_md.py:83-92`
+
+## Error Handling
+
+### Unsupported Format
+
+```bash
+curl -X POST http://localhost:8000/convert \
+  -F "file=@document.md" \
+  -F "format=pdf" \
+  -F "use_default_template=true"
+```
+
+**Response (400)**:
+```json
+{
+  "detail": "Unsupported format 'pdf'. Allowed: docx, html, pptx"
+}
+```
+
+### File Too Large
+
+**Response (413)**:
+```json
+{
+  "detail": "File too large"
+}
+```
+
+### Template Mismatch
+
+```bash
+curl -X POST http://localhost:8000/convert \
+  -F "file=@document.md" \
+  -F "format=pptx" \
+  -F "template=@template.docx"
+```
+
+**Response (400)**:
+```json
+{
+  "detail": "Template must be a .pptx file when converting to pptx"
+}
+```
+
+### Pandoc Error
+
+**Response (503)**:
+```json
+{
+  "detail": "Pandoc conversion failed: ..."
+}
+```
+
+## Implementation Details
+
+The conversion logic uses Pandoc via the `pypandoc` library:
+
+```python
+# app/services/pandoc_service.py:51-98
+def convert_markdown(
+    md_bytes: bytes,
+    output_format: OutputFormat,
+    template_bytes: bytes | None = None,
+    use_default_template: bool = True,
+    original_stem: str = "document",
+) -> tuple[bytes, str, str]:
+    """
+    Convert markdown content to the requested format using Pandoc via pypandoc.
+
+    Returns (file_bytes, download_filename, media_type).
+    """
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        input_file = tmp / "input.md"
+        output_file = tmp / f"output.{output_format}"
+        input_file.write_bytes(md_bytes)
+
+        extra_args: list[str] = []
+
+        if output_format in ("docx", "pptx"):
+            template_path: Path | None = None
+
+            if template_bytes:
+                template_path = tmp / f"template.{output_format}"
+                template_path.write_bytes(template_bytes)
+            elif use_default_template:
+                default = TEMPLATES_DIR / DEFAULT_TEMPLATES[output_format]
+                if default.exists():
+                    template_path = default
+
+            if template_path:
+                extra_args += ["--reference-doc", str(template_path)]
+
+        elif output_format == "html":
+            extra_args += ["--standalone"]
+
+        pypandoc.convert_file(
+            str(input_file),
+            output_format,
+            outputfile=str(output_file),
+            extra_args=extra_args,
+        )
+
+        content = output_file.read_bytes()
+        filename = f"{original_stem}.{output_format}"
+        media_type = MEDIA_TYPES[output_format]
+        return content, filename, media_type
+```
+
+**Source**: `app/services/pandoc_service.py:51-98`
+
+## Advanced Examples
+
+### Python Client
+
+```python
+import requests
+
+def convert_markdown_to_docx(md_path: str, output_path: str, template_path: str = None):
+    with open(md_path, "rb") as md_file:
+        files = {"file": md_file}
+        data = {
+            "format": "docx",
+            "use_default_template": template_path is None
+        }
+        
+        if template_path:
+            with open(template_path, "rb") as tmpl:
+                files["template"] = tmpl
+                response = requests.post(
+                    "http://localhost:8000/convert",
+                    files=files,
+                    data=data
+                )
+        else:
+            response = requests.post(
+                "http://localhost:8000/convert",
+                files=files,
+                data=data
+            )
+    
+    if response.ok:
+        with open(output_path, "wb") as out:
+            out.write(response.content)
+        print(f"Converted to {output_path}")
+    else:
+        print(f"Error: {response.json()}")
+
+# Usage
+convert_markdown_to_docx("report.md", "report.docx", "company_template.docx")
+```
+
+### Batch Conversion
+
+```bash
+#!/bin/bash
+# Convert all markdown files to DOCX
+
+for md_file in *.md; do
+  output="${md_file%.md}.docx"
+  echo "Converting $md_file to $output..."
+  
+  curl -X POST http://localhost:8000/convert \
+    -F "file=@$md_file" \
+    -F "format=docx" \
+    -F "use_default_template=true" \
+    -o "$output" \
+    --silent
+done
+
+echo "Conversion complete!"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Custom Templates" icon="palette" href="/guides/custom-templates">
+    Learn how to create and use custom reference templates
+  </Card>
+  <Card title="Convert to Markdown" icon="file-import" href="/guides/convert-to-markdown">
+    Convert documents to Markdown format
+  </Card>
+</CardGroup>

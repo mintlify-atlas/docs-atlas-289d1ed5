@@ -1,0 +1,320 @@
+---
+title: 'POST /convert'
+description: 'Convert Markdown to DOCX, PPTX, or HTML'
+---
+
+## Endpoint
+
+```http
+POST /convert
+```
+
+Convert a Markdown file to DOCX (Word), PPTX (PowerPoint), or HTML format using Pandoc. Supports custom templates for professional styling.
+
+## Request
+
+### Content Type
+
+```
+multipart/form-data
+```
+
+### Parameters
+
+<ParamField body="file" type="file" required>
+  The Markdown (`.md`) file to convert.
+  
+  **Size limit:** Configurable via `MAX_UPLOAD_MB` (default: 50 MB)
+</ParamField>
+
+<ParamField body="format" type="string" required>
+  Target output format.
+  
+  **Allowed values:**
+  - `docx` - Microsoft Word document
+  - `pptx` - Microsoft PowerPoint presentation
+  - `html` - HTML document
+  
+  The value is case-insensitive and will be trimmed.
+</ParamField>
+
+<ParamField body="use_default_template" type="boolean" default="true">
+  Whether to use the built-in default template.
+  
+  **Applies to:** `docx` and `pptx` formats only
+  
+  **Default:** `true`
+  
+  When `true`, applies professional styling using the server's default template. Set to `false` to use Pandoc's basic conversion without styling.
+</ParamField>
+
+<ParamField body="template" type="file" optional>
+  Custom reference template file (`.docx` or `.pptx`).
+  
+  **Applies to:** `docx` and `pptx` formats only
+  
+  Upload your own template to apply custom branding, styles, and formatting. This overrides the default template.
+  
+  **Requirements:**
+  - Template file extension must match the target format
+  - For `docx` conversion: template must be `.docx`
+  - For `pptx` conversion: template must be `.pptx`
+</ParamField>
+
+## Response
+
+### Success (200 OK)
+
+Returns the converted document as binary content with appropriate headers.
+
+<ResponseField name="Content-Type" type="string">
+  MIME type based on output format:
+  - `docx`: `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+  - `pptx`: `application/vnd.openxmlformats-officedocument.presentationml.presentation`
+  - `html`: `text/html`
+</ResponseField>
+
+<ResponseField name="Content-Disposition" type="string">
+  Attachment header with filename:
+  - `attachment; filename="document.docx"`
+  - `attachment; filename="presentation.pptx"`
+  - `attachment; filename="document.html"`
+  
+  The filename preserves the original input filename stem.
+</ResponseField>
+
+## Error Responses
+
+### 400 Bad Request
+
+**Unsupported format:**
+```json
+{
+  "detail": "Unsupported format 'pdf'. Allowed: docx, html, pptx"
+}
+```
+
+**Template format mismatch:**
+```json
+{
+  "detail": "Template must be a .docx file when converting to docx"
+}
+```
+
+### 413 Payload Too Large
+
+```json
+{
+  "detail": "File too large"
+}
+```
+
+Returned when the uploaded Markdown file exceeds the configured size limit.
+
+### 500 Internal Server Error
+
+```json
+{
+  "detail": "Error message from conversion service"
+}
+```
+
+Returned when the conversion process fails due to invalid Markdown or processing errors.
+
+### 503 Service Unavailable
+
+```json
+{
+  "detail": "Pandoc error message"
+}
+```
+
+Returned when Pandoc service fails to process the request (e.g., Pandoc not installed or runtime error).
+
+## Examples
+
+### cURL - Basic Conversion
+
+```bash
+curl -X POST http://localhost:8000/convert \
+  -F "file=@document.md" \
+  -F "format=docx" \
+  -F "use_default_template=true" \
+  -o output.docx
+```
+
+### cURL - HTML Conversion
+
+```bash
+curl -X POST http://localhost:8000/convert \
+  -F "file=@document.md" \
+  -F "format=html" \
+  -o output.html
+```
+
+### cURL - Custom Template
+
+```bash
+curl -X POST http://localhost:8000/convert \
+  -F "file=@document.md" \
+  -F "format=docx" \
+  -F "use_default_template=false" \
+  -F "template=@custom_template.docx" \
+  -o output.docx
+```
+
+### cURL - PowerPoint Conversion
+
+```bash
+curl -X POST http://localhost:8000/convert \
+  -F "file=@slides.md" \
+  -F "format=pptx" \
+  -F "use_default_template=true" \
+  -o presentation.pptx
+```
+
+### Python
+
+```python
+import requests
+
+url = "http://localhost:8000/convert"
+
+# Basic conversion to DOCX
+with open("document.md", "rb") as f:
+    files = {"file": f}
+    data = {
+        "format": "docx",
+        "use_default_template": "true"
+    }
+    response = requests.post(url, files=files, data=data)
+
+if response.status_code == 200:
+    with open("output.docx", "wb") as out:
+        out.write(response.content)
+```
+
+```python
+import requests
+
+url = "http://localhost:8000/convert"
+
+# Conversion with custom template
+with open("document.md", "rb") as md_file, \
+     open("custom.docx", "rb") as template_file:
+    
+    files = {
+        "file": md_file,
+        "template": template_file
+    }
+    data = {
+        "format": "docx",
+        "use_default_template": "false"
+    }
+    
+    response = requests.post(url, files=files, data=data)
+    
+if response.status_code == 200:
+    with open("output.docx", "wb") as out:
+        out.write(response.content)
+```
+
+### JavaScript (Fetch)
+
+```javascript
+const formData = new FormData();
+formData.append('file', markdownFile);
+formData.append('format', 'docx');
+formData.append('use_default_template', 'true');
+
+const response = await fetch('http://localhost:8000/convert', {
+  method: 'POST',
+  body: formData
+});
+
+if (response.ok) {
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'output.docx';
+  a.click();
+}
+```
+
+### JavaScript (With Custom Template)
+
+```javascript
+const formData = new FormData();
+formData.append('file', markdownFile);
+formData.append('format', 'docx');
+formData.append('use_default_template', 'false');
+formData.append('template', templateFile);
+
+const response = await fetch('http://localhost:8000/convert', {
+  method: 'POST',
+  body: formData
+});
+
+if (response.ok) {
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'output.docx';
+  a.click();
+}
+```
+
+## Template Usage
+
+### Default Templates
+
+The server provides pre-configured default templates for professional-looking output:
+
+- **DOCX template**: Includes standard styles, fonts, and formatting
+- **PPTX template**: Includes slide layouts and design themes
+
+These templates are generated automatically on server startup using Pandoc's built-in templates.
+
+### Custom Templates
+
+You can provide your own reference templates to apply custom branding:
+
+1. Create a styled document in Word or PowerPoint
+2. Upload it as the `template` parameter
+3. The converter will apply your styles to the Markdown content
+
+<Note>
+Custom templates override the default template, regardless of the `use_default_template` value.
+</Note>
+
+<Warning>
+Template file extension must match the target format. Uploading a `.docx` template for `pptx` conversion will result in a 400 error.
+</Warning>
+
+## Markdown Features
+
+Pandoc supports extended Markdown syntax:
+
+- **Headings**: `#` for titles
+- **Lists**: Bulleted and numbered
+- **Tables**: Pipe syntax
+- **Code blocks**: Fenced with language syntax highlighting
+- **Images**: Embedded or linked
+- **Links**: Inline and reference-style
+- **Emphasis**: Bold, italic, strikethrough
+
+<Note>
+For PPTX conversion, level 1 headings (`#`) typically create new slides, while level 2+ headings (`##`) create content within slides.
+</Note>
+
+## Notes
+
+<Note>
+The service uses Pandoc for conversion. Make sure Pandoc is installed on the server.
+</Note>
+
+<Warning>
+HTML output does not support custom templates. The `template` and `use_default_template` parameters are ignored for HTML format.
+</Warning>

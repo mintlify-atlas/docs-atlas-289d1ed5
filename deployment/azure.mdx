@@ -1,0 +1,452 @@
+---
+title: Azure Container Apps
+description: Deploy the MarkItDown API to Azure Container Apps with Azure Container Registry
+---
+
+Deploy the MarkItDown API to Azure Container Apps for a fully managed, serverless container hosting solution. This guide covers the complete deployment process using Azure Container Registry (ACR).
+
+## Prerequisites
+
+- Azure subscription
+- Azure CLI installed and configured
+- Docker installed locally
+- An Azure Container Registry (or create one during setup)
+
+## Architecture Overview
+
+The deployment uses:
+
+- **Azure Container Registry (ACR)**: Stores your Docker images
+- **Azure Container Apps**: Runs your containerized API
+- **Azure Container Apps Environment**: Manages networking and scaling
+
+## Deployment Steps
+
+<Steps>
+
+<Step title="Login to Azure">
+
+```bash
+az login
+az account set --subscription <your-subscription-id>
+```
+
+</Step>
+
+<Step title="Create a resource group">
+
+```bash
+az group create \
+  --name markitdown-rg \
+  --location eastus
+```
+
+</Step>
+
+<Step title="Create an Azure Container Registry">
+
+```bash
+az acr create \
+  --resource-group markitdown-rg \
+  --name <your-registry-name> \
+  --sku Basic \
+  --admin-enabled true
+```
+
+<Note>
+Replace `<your-registry-name>` with a globally unique name (lowercase, alphanumeric only).
+</Note>
+
+</Step>
+
+<Step title="Build and push the Docker image">
+
+Login to your registry:
+
+```bash
+az acr login --name <your-registry-name>
+```
+
+Build and push:
+
+```bash
+# Build locally
+docker build -t <your-registry-name>.azurecr.io/markitdown-api:latest .
+
+# Or use ACR build (recommended)
+az acr build \
+  --registry <your-registry-name> \
+  --image markitdown-api:latest \
+  .
+```
+
+<Info>
+Using `az acr build` builds the image directly in Azure, which is faster and doesn't require local Docker.
+</Info>
+
+</Step>
+
+<Step title="Create a Container Apps environment">
+
+```bash
+az containerapp env create \
+  --name markitdown-env \
+  --resource-group markitdown-rg \
+  --location eastus
+```
+
+</Step>
+
+<Step title="Deploy the Container App">
+
+Get your ACR credentials:
+
+```bash
+ACR_USERNAME=$(az acr credential show \
+  --name <your-registry-name> \
+  --query username -o tsv)
+
+ACR_PASSWORD=$(az acr credential show \
+  --name <your-registry-name> \
+  --query passwords[0].value -o tsv)
+```
+
+Deploy the app:
+
+```bash
+az containerapp create \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --environment markitdown-env \
+  --image <your-registry-name>.azurecr.io/markitdown-api:latest \
+  --registry-server <your-registry-name>.azurecr.io \
+  --registry-username $ACR_USERNAME \
+  --registry-password $ACR_PASSWORD \
+  --target-port 8000 \
+  --ingress external \
+  --min-replicas 1 \
+  --max-replicas 3 \
+  --cpu 1.0 \
+  --memory 2.0Gi \
+  --env-vars \
+    CORS_ORIGINS=https://your-frontend-url.com \
+    MAX_UPLOAD_MB=50
+```
+
+<Warning>
+Replace `https://your-frontend-url.com` with your actual frontend URL. For multiple origins, use comma-separated values.
+</Warning>
+
+</Step>
+
+<Step title="Configure secrets (optional)">
+
+If you need OpenAI integration, add the API key as a secret:
+
+```bash
+az containerapp secret set \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --secrets openai-key=<your-openai-key>
+
+az containerapp update \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --set-env-vars OPENAI_API_KEY=secretref:openai-key
+```
+
+</Step>
+
+<Step title="Get your application URL">
+
+```bash
+az containerapp show \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --query properties.configuration.ingress.fqdn -o tsv
+```
+
+Your API will be available at: `https://<fqdn>`
+
+</Step>
+
+<Step title="Verify deployment">
+
+```bash
+curl https://<your-app-url>/health
+```
+
+Expected response:
+
+```json
+{"status": "ok"}
+```
+
+</Step>
+
+</Steps>
+
+## Using Docker Compose with ACR
+
+You can also deploy using Docker Compose with a pre-built ACR image.
+
+<Steps>
+
+<Step title="Update docker-compose.yml">
+
+Edit your `docker-compose.yml` to use the ACR image:
+
+```yaml
+services:
+  api:
+    # Comment out the build line
+    # build: .
+    # Use your ACR image instead
+    image: ${ACR_REGISTRY}.azurecr.io/markitdown-api:${IMAGE_TAG:-latest}
+    container_name: markitdown-api
+    ports:
+      - "8000:8000"
+    environment:
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-50}
+    restart: unless-stopped
+```
+
+</Step>
+
+<Step title="Configure environment variables">
+
+Add to your `.env` file:
+
+```bash
+ACR_REGISTRY=<your-registry-name>
+IMAGE_TAG=latest
+CORS_ORIGINS=https://your-frontend-url.com
+```
+
+</Step>
+
+<Step title="Deploy">
+
+```bash
+az acr login --name <your-registry-name>
+docker-compose pull
+docker-compose up -d
+```
+
+</Step>
+
+</Steps>
+
+## Scaling Configuration
+
+Container Apps automatically scale based on HTTP traffic:
+
+```bash
+az containerapp update \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --min-replicas 1 \
+  --max-replicas 10 \
+  --scale-rule-name http-rule \
+  --scale-rule-type http \
+  --scale-rule-http-concurrency 100
+```
+
+This configuration:
+- Maintains at least 1 instance
+- Scales up to 10 instances
+- Adds instances when concurrent requests exceed 100
+
+## Continuous Deployment
+
+### GitHub Actions
+
+Create `.github/workflows/deploy.yml`:
+
+```yaml
+name: Deploy to Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Build and push image
+        run: |
+          az acr build \
+            --registry ${{ secrets.ACR_NAME }} \
+            --image markitdown-api:${{ github.sha }} \
+            --image markitdown-api:latest \
+            .
+      
+      - name: Deploy to Container Apps
+        run: |
+          az containerapp update \
+            --name markitdown-api \
+            --resource-group markitdown-rg \
+            --image ${{ secrets.ACR_NAME }}.azurecr.io/markitdown-api:${{ github.sha }}
+```
+
+<Note>
+Add `AZURE_CREDENTIALS` and `ACR_NAME` to your GitHub repository secrets.
+</Note>
+
+## Monitoring and Logs
+
+### View logs
+
+```bash
+az containerapp logs show \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --follow
+```
+
+### View metrics
+
+```bash
+az monitor metrics list \
+  --resource $(az containerapp show \
+    --name markitdown-api \
+    --resource-group markitdown-rg \
+    --query id -o tsv) \
+  --metric "Requests"
+```
+
+## Cost Optimization
+
+<Tabs>
+  <Tab title="Development">
+    ```bash
+    # Minimum resources for testing
+    az containerapp update \
+      --name markitdown-api \
+      --resource-group markitdown-rg \
+      --cpu 0.5 \
+      --memory 1.0Gi \
+      --min-replicas 0 \
+      --max-replicas 1
+    ```
+    
+    Setting `min-replicas` to 0 scales to zero when idle (consumption-only billing).
+  </Tab>
+  
+  <Tab title="Production">
+    ```bash
+    # Balanced resources for production
+    az containerapp update \
+      --name markitdown-api \
+      --resource-group markitdown-rg \
+      --cpu 1.0 \
+      --memory 2.0Gi \
+      --min-replicas 1 \
+      --max-replicas 5
+    ```
+    
+    Keeps at least 1 instance running for fast response times.
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+### Image pull errors
+
+Verify ACR credentials:
+
+```bash
+az acr credential show --name <your-registry-name>
+```
+
+Update Container App credentials if needed:
+
+```bash
+az containerapp registry set \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --server <your-registry-name>.azurecr.io \
+  --username $ACR_USERNAME \
+  --password $ACR_PASSWORD
+```
+
+### Application not starting
+
+Check container logs:
+
+```bash
+az containerapp logs show \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --tail 100
+```
+
+Common issues:
+- Missing environment variables
+- Invalid CORS configuration
+- Insufficient memory allocation
+
+### CORS errors
+
+Update CORS origins:
+
+```bash
+az containerapp update \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --set-env-vars CORS_ORIGINS=https://frontend1.com,https://frontend2.com
+```
+
+## Security Best Practices
+
+<Warning>
+Always use managed identities instead of ACR admin credentials in production.
+</Warning>
+
+### Enable managed identity
+
+```bash
+# Enable system-assigned identity
+az containerapp identity assign \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --system-assigned
+
+# Get the identity
+IDENTITY=$(az containerapp identity show \
+  --name markitdown-api \
+  --resource-group markitdown-rg \
+  --query principalId -o tsv)
+
+# Grant ACR pull permissions
+az role assignment create \
+  --assignee $IDENTITY \
+  --role AcrPull \
+  --scope $(az acr show \
+    --name <your-registry-name> \
+    --query id -o tsv)
+```
+
+### Additional security measures
+
+- Use Azure Key Vault for secrets
+- Enable diagnostic logs
+- Restrict ingress to specific IPs if needed
+- Use custom domains with SSL certificates
+
+## Next Steps
+
+- Configure [environment variables](/deployment/environment) for your deployment
+- Set up custom domains and SSL certificates
+- Configure Azure Application Insights for monitoring
+- Learn about [Docker deployment](/deployment/docker) for local testing

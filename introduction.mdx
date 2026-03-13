@@ -1,0 +1,115 @@
+---
+title: Introduction
+description: Convert documents to Markdown and Markdown to DOCX, PPTX, or HTML with a simple REST API
+---
+
+## What is MarkItDown API?
+
+MarkItDown API is a powerful REST API that provides bidirectional document conversion:
+
+- **To Markdown**: Convert various document formats (PDF, DOCX, PPTX, Excel, images, and more) into clean, structured Markdown
+- **From Markdown**: Transform Markdown files into professional DOCX, PPTX, or HTML documents with custom templates
+
+Built on top of [MarkItDown](https://github.com/microsoft/markitdown) and [Pandoc](https://pandoc.org/), this API makes document conversion as simple as a single HTTP request.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Multiple Format Support" icon="file">
+    Convert PDF, DOCX, PPTX, XLSX, images (PNG, JPG), audio, video, and more to Markdown
+  </Card>
+  <Card title="Bidirectional Conversion" icon="arrow-right-arrow-left">
+    Go from documents to Markdown and back to DOCX, PPTX, or HTML
+  </Card>
+  <Card title="Excel Multi-Sheet Handling" icon="table">
+    Automatically processes all sheets in Excel files and returns structured Markdown tables
+  </Card>
+  <Card title="Custom Templates" icon="palette">
+    Use your own DOCX or PPTX templates for branded document output
+  </Card>
+  <Card title="AI-Enhanced OCR" icon="sparkles">
+    Optional OpenAI integration for advanced image text extraction
+  </Card>
+  <Card title="Batch Processing" icon="layer-group">
+    Upload multiple files at once and get a ZIP archive with all conversions
+  </Card>
+</CardGroup>
+
+## Use Cases
+
+### Document Processing Pipelines
+Extract structured content from PDFs, Word documents, or presentations to process, analyze, or index the text.
+
+### Content Migration
+Convert legacy documents to Markdown for modern documentation systems, static site generators, or content management platforms.
+
+### Report Generation
+Transform Markdown content (from templates, databases, or user input) into professional DOCX or PPTX reports with custom branding.
+
+### Data Extraction
+Convert Excel spreadsheets to Markdown tables for data analysis, transformation, or integration with other systems.
+
+### Accessibility & Archival
+Convert various document formats to clean, accessible Markdown or HTML for long-term storage and universal access.
+
+## Architecture
+
+MarkItDown API is built with:
+
+- **FastAPI**: High-performance Python web framework
+- **MarkItDown**: Microsoft's document-to-Markdown converter supporting 20+ file formats
+- **Pandoc**: Universal document converter (via pypandoc_binary)
+- **OpenPyXL**: Excel file processing with multi-sheet support
+- **OpenAI** (optional): AI-enhanced image OCR with GPT-4o-mini
+
+<Note>
+  The API uses `pypandoc_binary` which bundles Pandoc, so no external dependencies are required.
+</Note>
+
+## API Overview
+
+The API exposes four main endpoints:
+
+| Endpoint | Method | Purpose |
+|----------|--------|--------|
+| `/upload` | POST | Convert files to Markdown |
+| `/convert` | POST | Convert Markdown to DOCX/PPTX/HTML |
+| `/convert/templates` | GET | Check available default templates |
+| `/health` | GET | Health check endpoint |
+
+<Info>
+  All file uploads are limited to 50 MB by default (configurable via `MAX_UPLOAD_MB` environment variable).
+</Info>
+
+## Response Formats
+
+### Single File Conversion
+When converting a single file (or a single-sheet Excel file) to Markdown, the API returns the `.md` file directly:
+
+```
+Content-Type: text/markdown; charset=utf-8
+Content-Disposition: attachment; filename="document.md"
+```
+
+### Multi-File or Multi-Sheet Conversion
+When converting multiple files or a multi-sheet Excel file, the API returns a ZIP archive:
+
+```
+Content-Type: application/zip
+Content-Disposition: attachment; filename="converted_files.zip"
+```
+
+For Excel files with multiple sheets, files are named: `{original_name}_{sheet_index}_{total_sheets}.md`
+
+Example: `report_1_3.md`, `report_2_3.md`, `report_3_3.md`
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get up and running in 5 minutes
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore all endpoints and parameters
+  </Card>
+</CardGroup>

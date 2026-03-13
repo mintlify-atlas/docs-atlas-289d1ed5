@@ -1,0 +1,231 @@
+---
+title: 'POST /upload'
+description: 'Convert files to Markdown'
+---
+
+## Endpoint
+
+```http
+POST /upload
+```
+
+Convert one or more files to Markdown format. Supports various document types including Office documents, PDFs, images, and Excel spreadsheets.
+
+## Request
+
+### Content Type
+
+```
+multipart/form-data
+```
+
+### Parameters
+
+<ParamField body="files" type="file[]" required>
+  One or more files to convert to Markdown. Accepts multiple files in a single request.
+  
+  **Supported formats:**
+  - Office documents (DOCX, PPTX, XLSX)
+  - PDF files
+  - Images (PNG, JPG, etc.)
+  - Excel spreadsheets with multiple sheets
+  
+  **Size limit:** Configurable via `MAX_UPLOAD_MB` (default: 50 MB per file)
+</ParamField>
+
+## Response Behavior
+
+The endpoint returns different content types based on the input:
+
+<Expandable title="Single file, single sheet">
+  **Returns:** A `.md` file
+  
+  ```http
+  Content-Type: text/markdown
+  Content-Disposition: attachment; filename="document.md"
+  ```
+</Expandable>
+
+<Expandable title="Single Excel with multiple sheets">
+  **Returns:** A `.zip` file containing one `.md` file per sheet
+  
+  ```http
+  Content-Type: application/zip
+  Content-Disposition: attachment; filename="workbook.zip"
+  ```
+</Expandable>
+
+<Expandable title="Multiple files">
+  **Returns:** A `.zip` file containing all converted `.md` files
+  
+  ```http
+  Content-Type: application/zip
+  Content-Disposition: attachment; filename="converted.zip"
+  ```
+</Expandable>
+
+## Response
+
+### Success (200 OK)
+
+Returns the converted file(s) as binary content with appropriate headers.
+
+<ResponseField name="Content-Type" type="string">
+  MIME type of the response:
+  - `text/markdown` - Single Markdown file
+  - `application/zip` - Multiple files or sheets
+</ResponseField>
+
+<ResponseField name="Content-Disposition" type="string">
+  Attachment header with filename:
+  - `attachment; filename="document.md"` - Single file
+  - `attachment; filename="output.zip"` - Multiple files
+</ResponseField>
+
+## Error Responses
+
+### 400 Bad Request
+
+```json
+{
+  "detail": "No files provided"
+}
+```
+
+Returned when the request does not include any files.
+
+### 413 Payload Too Large
+
+```json
+{
+  "detail": "File 'document.pdf' exceeds the 50 MB limit"
+}
+```
+
+Returned when any uploaded file exceeds the configured size limit.
+
+### 500 Internal Server Error
+
+```json
+{
+  "detail": "Error message from conversion service"
+}
+```
+
+Returned when the conversion process fails.
+
+## Examples
+
+### cURL - Single File
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@document.pdf" \
+  -o output.md
+```
+
+### cURL - Multiple Files
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "files=@document1.pdf" \
+  -F "files=@document2.docx" \
+  -F "files=@spreadsheet.xlsx" \
+  -o output.zip
+```
+
+### Python
+
+```python
+import requests
+
+url = "http://localhost:8000/upload"
+
+# Single file
+with open("document.pdf", "rb") as f:
+    files = {"files": f}
+    response = requests.post(url, files=files)
+    
+if response.status_code == 200:
+    with open("output.md", "wb") as out:
+        out.write(response.content)
+```
+
+```python
+import requests
+
+url = "http://localhost:8000/upload"
+
+# Multiple files
+files = [
+    ("files", open("doc1.pdf", "rb")),
+    ("files", open("doc2.docx", "rb"))
+]
+
+response = requests.post(url, files=files)
+
+if response.status_code == 200:
+    with open("output.zip", "wb") as out:
+        out.write(response.content)
+```
+
+### JavaScript (Fetch)
+
+```javascript
+const formData = new FormData();
+formData.append('files', fileInput.files[0]);
+
+const response = await fetch('http://localhost:8000/upload', {
+  method: 'POST',
+  body: formData
+});
+
+if (response.ok) {
+  const blob = await response.blob();
+  // Download the file
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'output.md';
+  a.click();
+}
+```
+
+### JavaScript (Multiple Files)
+
+```javascript
+const formData = new FormData();
+
+// Add multiple files
+for (const file of fileInput.files) {
+  formData.append('files', file);
+}
+
+const response = await fetch('http://localhost:8000/upload', {
+  method: 'POST',
+  body: formData
+});
+
+if (response.ok) {
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'output.zip';
+  a.click();
+}
+```
+
+## Notes
+
+<Note>
+The service uses the MarkItDown library for conversion. Quality and formatting depend on the source document structure.
+</Note>
+
+<Warning>
+Each file is validated against the size limit before processing. Large files will be rejected with a 413 error.
+</Warning>
+
+<Note>
+When converting Excel files with multiple sheets, each sheet becomes a separate Markdown file in the ZIP archive.
+</Note>

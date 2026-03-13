@@ -1,0 +1,363 @@
+---
+title: 'Error Handling'
+description: 'Understand error responses and HTTP status codes'
+icon: 'triangle-exclamation'
+---
+
+## Overview
+
+The MarkItDown API uses standard HTTP status codes and returns structured error responses. All errors follow a consistent format for easy parsing and handling.
+
+## Error Response Format
+
+All error responses include a `detail` field with a human-readable message:
+
+```json
+{
+  "detail": "Error message describing what went wrong"
+}
+```
+
+<ResponseField name="detail" type="string" required>
+  A clear description of the error that occurred.
+</ResponseField>
+
+## HTTP Status Codes
+
+### 400 Bad Request
+
+Indicates invalid input or malformed requests.
+
+<AccordionGroup>
+
+<Accordion title="No Files Provided" icon="file-slash">
+  **Endpoint:** `POST /upload`
+  
+  **When it occurs:** No files are included in the request
+  
+  ```python app/routers/convert_to_md.py
+  if not files:
+      raise HTTPException(status_code=400, detail="No files provided")
+  ```
+  
+  **Response:**
+  ```json
+  {
+    "detail": "No files provided"
+  }
+  ```
+</Accordion>
+
+<Accordion title="Unsupported Format" icon="file-exclamation">
+  **Endpoint:** `POST /convert`
+  
+  **When it occurs:** Requested output format is not supported
+  
+  ```python app/routers/convert_from_md.py
+  fmt = format.lower().strip()
+  if fmt not in ALLOWED_FORMATS:
+      raise HTTPException(
+          status_code=400,
+          detail=f"Unsupported format '{fmt}'. Allowed: {', '.join(sorted(ALLOWED_FORMATS))}",
+      )
+  ```
+  
+  **Response:**
+  ```json
+  {
+    "detail": "Unsupported format 'pdf'. Allowed: docx, html, pptx"
+  }
+  ```
+</Accordion>
+
+<Accordion title="Invalid Template Format" icon="file-xmark">
+  **Endpoint:** `POST /convert`
+  
+  **When it occurs:** Template file format doesn't match the output format
+  
+  ```python app/routers/convert_from_md.py
+  if fmt in ALLOWED_TEMPLATE_FORMATS and tmpl_ext != fmt:
+      raise HTTPException(
+          status_code=400,
+          detail=f"Template must be a .{fmt} file when converting to {fmt}",
+      )
+  ```
+  
+  **Response:**
+  ```json
+  {
+    "detail": "Template must be a .docx file when converting to docx"
+  }
+  ```
+</Accordion>
+
+</AccordionGroup>
+
+### 413 Payload Too Large
+
+Indicates the uploaded file exceeds the configured size limit.
+
+<AccordionGroup>
+
+<Accordion title="File Exceeds Size Limit - Upload Endpoint" icon="scale-unbalanced-flip">
+  **Endpoint:** `POST /upload`
+  
+  **When it occurs:** File size exceeds `MAX_UPLOAD_BYTES`
+  
+  ```python app/routers/convert_to_md.py
+  if len(content) > MAX_UPLOAD_BYTES:
+      raise HTTPException(
+          status_code=413,
+          detail=f"File '{f.filename}' exceeds the {MAX_UPLOAD_BYTES // (1024*1024)} MB limit",
+      )
+  ```
+  
+  **Response:**
+  ```json
+  {
+    "detail": "File 'document.pdf' exceeds the 50 MB limit"
+  }
+  ```
+</Accordion>
+
+<Accordion title="File Too Large - Convert Endpoint" icon="scale-unbalanced-flip">
+  **Endpoint:** `POST /convert`
+  
+  **When it occurs:** Markdown file size exceeds `MAX_UPLOAD_BYTES`
+  
+  ```python app/routers/convert_from_md.py
+  if len(md_content) > MAX_UPLOAD_BYTES:
+      raise HTTPException(status_code=413, detail="File too large")
+  ```
+  
+  **Response:**
+  ```json
+  {
+    "detail": "File too large"
+  }
+  ```
+</Accordion>
+
+</AccordionGroup>
+
+<Info>
+  See the [File Upload Limits](/api/file-limits) page for configuration details.
+</Info>
+
+### 500 Internal Server Error
+
+Indicates an unexpected error occurred during processing.
+
+<Accordion title="General Processing Error" icon="server">
+  **When it occurs:** Unexpected exceptions during file conversion
+  
+  **Upload endpoint:**
+  ```python app/routers/convert_to_md.py
+  try:
+      content_bytes, filename, media_type = await convert_files_to_markdown(files)
+  except Exception as exc:
+      raise HTTPException(status_code=500, detail=str(exc))
+  ```
+  
+  **Convert endpoint:**
+  ```python app/routers/convert_from_md.py
+  except Exception as exc:
+      raise HTTPException(status_code=500, detail=str(exc))
+  ```
+  
+  **Response:**
+  ```json
+  {
+    "detail": "Error processing file: [specific error message]"
+  }
+  ```
+</Accordion>
+
+<Warning>
+  500 errors indicate server-side issues. Check server logs for detailed stack traces.
+</Warning>
+
+### 503 Service Unavailable
+
+Indicates the service or a dependency is temporarily unavailable.
+
+<Accordion title="Pandoc Runtime Error" icon="gears">
+  **Endpoint:** `POST /convert`
+  
+  **When it occurs:** Pandoc conversion fails or is unavailable
+  
+  ```python app/routers/convert_from_md.py
+  try:
+      content_bytes, filename, media_type = convert_markdown(
+          md_bytes=md_content,
+          output_format=fmt,
+          template_bytes=template_bytes,
+          use_default_template=use_default_template,
+          original_stem=original_stem,
+      )
+  except RuntimeError as exc:
+      raise HTTPException(status_code=503, detail=str(exc))
+  ```
+  
+  **Response:**
+  ```json
+  {
+    "detail": "Pandoc conversion failed: [error details]"
+  }
+  ```
+</Accordion>
+
+<Note>
+  503 errors are typically temporary. Retry the request after a brief delay.
+</Note>
+
+## Client Error Handling Examples
+
+### JavaScript / TypeScript
+
+```typescript
+async function uploadFile(file: File) {
+  const formData = new FormData();
+  formData.append('files', file);
+  
+  try {
+    const response = await fetch('http://localhost:8000/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      
+      switch (response.status) {
+        case 400:
+          console.error('Invalid request:', error.detail);
+          break;
+        case 413:
+          console.error('File too large:', error.detail);
+          break;
+        case 500:
+          console.error('Server error:', error.detail);
+          break;
+        case 503:
+          console.error('Service unavailable:', error.detail);
+          // Retry logic here
+          break;
+        default:
+          console.error('Unexpected error:', error.detail);
+      }
+      
+      return null;
+    }
+    
+    return await response.blob();
+  } catch (error) {
+    console.error('Network error:', error);
+    return null;
+  }
+}
+```
+
+### Python
+
+```python
+import requests
+
+def upload_file(file_path: str):
+    with open(file_path, 'rb') as f:
+        files = {'files': f}
+        
+        try:
+            response = requests.post(
+                'http://localhost:8000/upload',
+                files=files
+            )
+            response.raise_for_status()
+            return response.content
+            
+        except requests.exceptions.HTTPError as e:
+            error_detail = e.response.json().get('detail', 'Unknown error')
+            
+            if e.response.status_code == 400:
+                print(f"Invalid request: {error_detail}")
+            elif e.response.status_code == 413:
+                print(f"File too large: {error_detail}")
+            elif e.response.status_code == 500:
+                print(f"Server error: {error_detail}")
+            elif e.response.status_code == 503:
+                print(f"Service unavailable: {error_detail}")
+            else:
+                print(f"HTTP error: {error_detail}")
+                
+        except requests.exceptions.RequestException as e:
+            print(f"Network error: {e}")
+            
+    return None
+```
+
+### cURL
+
+```bash
+curl -X POST "http://localhost:8000/upload" \
+     -F "files=@document.pdf" \
+     -w "\nHTTP Status: %{http_code}\n" \
+     -o output.md
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+
+<Card title="Always Check Status Codes" icon="check">
+  Don't assume requests succeed. Check the HTTP status code and handle errors appropriately.
+</Card>
+
+<Card title="Parse Error Details" icon="magnifying-glass">
+  The `detail` field provides specific information about what went wrong. Display this to users or log it for debugging.
+</Card>
+
+<Card title="Implement Retry Logic" icon="rotate">
+  For 503 errors, implement exponential backoff retry logic. These errors are typically temporary.
+</Card>
+
+<Card title="Validate Before Upload" icon="shield-check">
+  Check file sizes and formats client-side before uploading to avoid unnecessary requests.
+</Card>
+
+</CardGroup>
+
+## Error Logging
+
+<Note>
+  Server-side errors (500, 503) are logged automatically by FastAPI. Check your application logs for detailed stack traces and debugging information.
+</Note>
+
+## Common Error Scenarios
+
+<AccordionGroup>
+
+<Accordion title="Empty File Upload">
+  **Error:** `400 Bad Request - No files provided`
+  
+  **Solution:** Ensure at least one file is included in the `files` field of the multipart form data.
+</Accordion>
+
+<Accordion title="Wrong File Format">
+  **Error:** `400 Bad Request - Unsupported format 'pdf'`
+  
+  **Solution:** Use only supported formats: `docx`, `pptx`, or `html`.
+</Accordion>
+
+<Accordion title="File Too Large">
+  **Error:** `413 Payload Too Large`
+  
+  **Solution:** Reduce file size or contact administrator to increase `MAX_UPLOAD_MB` limit.
+</Accordion>
+
+<Accordion title="Pandoc Not Installed">
+  **Error:** `503 Service Unavailable`
+  
+  **Solution:** Ensure Pandoc is installed and accessible in the server's PATH.
+</Accordion>
+
+</AccordionGroup>

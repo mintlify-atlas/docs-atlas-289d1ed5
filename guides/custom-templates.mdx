@@ -1,0 +1,509 @@
+---
+title: Using Custom Templates
+description: Learn how to create and use custom reference templates for DOCX and PPTX conversion
+---
+
+Custom templates allow you to control the styling, fonts, colors, and layout of documents generated from Markdown. The MarkItDown API uses Pandoc's reference document system to apply your branding and formatting.
+
+## Template Support by Format
+
+| Format | Template Support | Template File Type |
+|--------|-----------------|--------------------|
+| DOCX | Yes | `.docx` |
+| PPTX | Yes | `.pptx` |
+| HTML | No | N/A |
+
+<Note>
+HTML output does not support custom templates. Use CSS styling in your Markdown or post-process the generated HTML.
+</Note>
+
+## How Templates Work
+
+Pandoc's reference document system works by:
+
+1. **Extracting styles** from your reference template
+2. **Mapping Markdown elements** to template styles
+3. **Generating output** with your formatting applied
+
+<Info>
+The template provides styling and formatting, not content. Pandoc uses the template's styles (fonts, colors, spacing) while generating content from your Markdown.
+</Info>
+
+## Template Options
+
+The API provides three ways to handle templates:
+
+<Tabs>
+  <Tab title="Default Template">
+    Use Pandoc's built-in reference document.
+    
+    ```bash
+    curl -X POST http://localhost:8000/convert \
+      -F "file=@document.md" \
+      -F "format=docx" \
+      -F "use_default_template=true" \
+      -o output.docx
+    ```
+    
+    Generated automatically on server startup.
+  </Tab>
+
+  <Tab title="Custom Template">
+    Upload your own styled reference document.
+    
+    ```bash
+    curl -X POST http://localhost:8000/convert \
+      -F "file=@document.md" \
+      -F "format=docx" \
+      -F "use_default_template=false" \
+      -F "template=@my_template.docx" \
+      -o output.docx
+    ```
+    
+    Full control over styling and branding.
+  </Tab>
+
+  <Tab title="No Template">
+    Use Pandoc's minimal default styling.
+    
+    ```bash
+    curl -X POST http://localhost:8000/convert \
+      -F "file=@document.md" \
+      -F "format=docx" \
+      -F "use_default_template=false" \
+      -o output.docx
+    ```
+    
+    Basic formatting only.
+  </Tab>
+</Tabs>
+
+## Creating a DOCX Template
+
+<Steps>
+  <Step title="Generate Base Template">
+    Start with Pandoc's default reference document:
+    
+    ```bash
+    pandoc --print-default-data-file reference.docx > template.docx
+    ```
+  </Step>
+
+  <Step title="Customize in Word">
+    Open `template.docx` in Microsoft Word and modify:
+    
+    - **Heading styles** (Heading 1, Heading 2, etc.)
+    - **Body text** (Normal style)
+    - **Fonts and colors**
+    - **Page margins and size**
+    - **Headers and footers**
+    - **Table styles**
+    - **List formatting**
+  </Step>
+
+  <Step title="Save Template">
+    Save the file. The styles will be preserved and applied to generated documents.
+  </Step>
+
+  <Step title="Test Template">
+    Upload your template with a Markdown file to verify styling:
+    
+    ```bash
+    curl -X POST http://localhost:8000/convert \
+      -F "file=@test.md" \
+      -F "format=docx" \
+      -F "template=@template.docx" \
+      -o result.docx
+    ```
+  </Step>
+</Steps>
+
+## Creating a PPTX Template
+
+<Steps>
+  <Step title="Generate Base Template">
+    Start with Pandoc's default reference document:
+    
+    ```bash
+    pandoc --print-default-data-file reference.pptx > template.pptx
+    ```
+  </Step>
+
+  <Step title="Customize in PowerPoint">
+    Open `template.pptx` in Microsoft PowerPoint and modify:
+    
+    - **Slide layouts**
+    - **Theme colors and fonts**
+    - **Master slide elements**
+    - **Background styles**
+    - **Company logo placement**
+    - **Default text formatting**
+  </Step>
+
+  <Step title="Save Template">
+    Save the file with your corporate branding and style.
+  </Step>
+
+  <Step title="Test Template">
+    Convert Markdown to PPTX using your template:
+    
+    ```bash
+    curl -X POST http://localhost:8000/convert \
+      -F "file=@slides.md" \
+      -F "format=pptx" \
+      -F "template=@template.pptx" \
+      -o presentation.pptx
+    ```
+  </Step>
+</Steps>
+
+## Template Validation
+
+The API validates template compatibility before conversion:
+
+```python
+# app/routers/convert_from_md.py:51-58
+if template and template.filename:
+    tmpl_ext = Path(template.filename).suffix.lower().lstrip(".")
+    if fmt in ALLOWED_TEMPLATE_FORMATS and tmpl_ext != fmt:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Template must be a .{fmt} file when converting to {fmt}",
+        )
+    template_bytes = await template.read()
+```
+
+**Source**: `app/routers/convert_from_md.py:51-58`
+
+<Warning>
+The template file extension must match the output format:
+- Converting to DOCX → Use `.docx` template
+- Converting to PPTX → Use `.pptx` template
+
+Mismatched formats will result in a 400 error.
+</Warning>
+
+## Template Processing Logic
+
+The service determines which template to use:
+
+```python
+# app/services/pandoc_service.py:69-83
+extra_args: list[str] = []
+
+if output_format in ("docx", "pptx"):
+    template_path: Path | None = None
+
+    if template_bytes:
+        template_path = tmp / f"template.{output_format}"
+        template_path.write_bytes(template_bytes)
+    elif use_default_template:
+        default = TEMPLATES_DIR / DEFAULT_TEMPLATES[output_format]
+        if default.exists():
+            template_path = default
+
+    if template_path:
+        extra_args += ["--reference-doc", str(template_path)]
+```
+
+**Source**: `app/services/pandoc_service.py:69-83`
+
+Priority order:
+1. **Custom uploaded template** (if provided)
+2. **Default template** (if `use_default_template=true`)
+3. **No template** (Pandoc's built-in styling)
+
+## Style Mapping Reference
+
+### DOCX Style Mapping
+
+Markdown elements map to Word styles:
+
+| Markdown | Word Style |
+|----------|------------|
+| `# Heading` | Heading 1 |
+| `## Heading` | Heading 2 |
+| `### Heading` | Heading 3 |
+| Paragraph text | Normal |
+| `**bold**` | Strong |
+| `*italic*` | Emphasis |
+| `` `code` `` | Verbatim Char |
+| Code blocks | Source Code |
+| `> Quote` | Block Quote |
+| Tables | Table styles |
+| Lists | List Paragraph |
+
+### PPTX Slide Structure
+
+Markdown headings control slide layout:
+
+```markdown
+# Title Slide
+
+Slide title becomes the main heading.
+Content appears in the body.
+
+# Another Slide
+
+## Subtitle or Section
+
+- Bullet points
+- Follow your template's
+- List formatting
+```
+
+<Accordion title="Understanding slide breaks">
+  - **Level 1 headings** (`#`) create new slides
+  - **Level 2 headings** (`##`) create sections within slides
+  - Content between headings fills the slide body
+  - Bullet lists and paragraphs use template formatting
+</Accordion>
+
+## Default Template Generation
+
+The API automatically generates default templates on startup:
+
+```python
+# app/services/pandoc_service.py:30-48
+def ensure_default_templates() -> None:
+    """
+    Generate default reference templates using Pandoc on first run.
+    Called at application startup.
+    """
+    pandoc_path = _get_pandoc_path()
+
+    for fmt, filename in [("docx", "default.docx"), ("pptx", "default.pptx")]:
+        dest = TEMPLATES_DIR / filename
+        if not dest.exists():
+            try:
+                result = subprocess.run(
+                    [pandoc_path, "--print-default-data-file", f"reference.{fmt}"],
+                    capture_output=True,
+                    check=True,
+                )
+                dest.write_bytes(result.stdout)
+            except subprocess.CalledProcessError:
+                pass
+```
+
+**Source**: `app/services/pandoc_service.py:30-48`
+
+Templates are stored in:
+```python
+# app/config.py:18-21
+BASE_DIR = Path(__file__).parent
+TEMPLATES_DIR = BASE_DIR / "templates"
+TEMPLATES_DIR.mkdir(exist_ok=True)
+```
+
+**Source**: `app/config.py:18-21`
+
+## Checking Available Templates
+
+Query the server to see which default templates exist:
+
+```bash
+curl http://localhost:8000/convert/templates
+```
+
+**Response**:
+```json
+{
+  "default_templates": {
+    "docx": true,
+    "pptx": true
+  }
+}
+```
+
+### Implementation
+
+```python
+# app/routers/convert_from_md.py:83-92
+@router.get("/convert/templates")
+async def list_default_templates():
+    """Return which default templates are available on the server."""
+    from app.config import TEMPLATES_DIR
+
+    available = {
+        "docx": (TEMPLATES_DIR / "default.docx").exists(),
+        "pptx": (TEMPLATES_DIR / "default.pptx").exists(),
+    }
+    return {"default_templates": available}
+```
+
+**Source**: `app/routers/convert_from_md.py:83-92`
+
+## Advanced Examples
+
+### Corporate Branding Template
+
+Create a branded DOCX template:
+
+1. **Set corporate fonts**:
+   - Heading 1: Arial Bold, 24pt, Company Blue (#003366)
+   - Heading 2: Arial Bold, 18pt, Company Blue (#003366)
+   - Normal: Arial, 11pt, Black
+
+2. **Add company logo** to header
+
+3. **Set margins**: 1" all sides
+
+4. **Configure footer** with page numbers and copyright
+
+5. **Upload and use**:
+   ```bash
+   curl -X POST http://localhost:8000/convert \
+     -F "file=@report.md" \
+     -F "format=docx" \
+     -F "template=@corporate_template.docx" \
+     -o branded_report.docx
+   ```
+
+### Presentation Template with Theme
+
+```bash
+# Create base template
+pandoc --print-default-data-file reference.pptx > company_theme.pptx
+
+# Customize in PowerPoint:
+# - Apply company color scheme
+# - Add logo to master slide
+# - Set default fonts
+# - Customize slide layouts
+
+# Use template for all presentations
+curl -X POST http://localhost:8000/convert \
+  -F "file=@quarterly_update.md" \
+  -F "format=pptx" \
+  -F "template=@company_theme.pptx" \
+  -o quarterly_update.pptx
+```
+
+### Python Template Manager
+
+```python
+import requests
+from pathlib import Path
+
+class TemplateManager:
+    def __init__(self, api_url: str):
+        self.api_url = api_url
+        self.templates = {}
+    
+    def register_template(self, name: str, path: str):
+        """Register a template for later use."""
+        self.templates[name] = Path(path)
+    
+    def convert_with_template(
+        self,
+        md_path: str,
+        format: str,
+        template_name: str,
+        output_path: str
+    ):
+        """Convert Markdown using a registered template."""
+        if template_name not in self.templates:
+            raise ValueError(f"Template '{template_name}' not registered")
+        
+        template_path = self.templates[template_name]
+        
+        with open(md_path, "rb") as md_file:
+            with open(template_path, "rb") as tmpl_file:
+                files = {
+                    "file": md_file,
+                    "template": tmpl_file
+                }
+                data = {
+                    "format": format,
+                    "use_default_template": False
+                }
+                
+                response = requests.post(
+                    f"{self.api_url}/convert",
+                    files=files,
+                    data=data
+                )
+        
+        if response.ok:
+            with open(output_path, "wb") as out:
+                out.write(response.content)
+            print(f"Converted to {output_path} using template '{template_name}'")
+        else:
+            raise Exception(f"Conversion failed: {response.json()}")
+
+# Usage
+manager = TemplateManager("http://localhost:8000")
+manager.register_template("corporate", "templates/corporate.docx")
+manager.register_template("minimal", "templates/minimal.docx")
+manager.register_template("presentation", "templates/slides.pptx")
+
+# Convert with specific template
+manager.convert_with_template(
+    "report.md",
+    "docx",
+    "corporate",
+    "report.docx"
+)
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Test Templates" icon="flask">
+    Always test templates with sample Markdown to verify styling before production use.
+  </Card>
+  
+  <Card title="Version Control" icon="code-branch">
+    Keep template files in version control alongside your documentation.
+  </Card>
+  
+  <Card title="Consistent Naming" icon="tag">
+    Use descriptive template names: `corporate_report.docx`, `sales_presentation.pptx`
+  </Card>
+  
+  <Card title="Document Styles" icon="book">
+    Maintain documentation of which styles map to which Markdown elements.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### Template Not Applied
+
+**Problem**: Output doesn't match template styling.
+
+**Solutions**:
+- Verify template file format matches output format
+- Check that `use_default_template=false` when uploading custom template
+- Ensure template file is not corrupted
+- Test template with Pandoc directly: `pandoc input.md -o output.docx --reference-doc=template.docx`
+
+### Template Upload Fails
+
+**Problem**: 400 error when uploading template.
+
+**Solutions**:
+- Check template file extension matches format (`.docx` for DOCX, `.pptx` for PPTX)
+- Verify template file size is under the upload limit
+- Ensure template file is valid and opens in Word/PowerPoint
+
+### Styles Look Wrong
+
+**Problem**: Some elements don't match template.
+
+**Solutions**:
+- Verify you've modified the correct style names in Word/PowerPoint
+- Check that Markdown elements map to expected styles (see style mapping tables above)
+- Some Markdown features may not have direct style equivalents
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Convert from Markdown" icon="file-export" href="/guides/convert-from-markdown">
+    Learn more about Markdown to document conversion
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/convert">
+    View complete API documentation for the convert endpoint
+  </Card>
+</CardGroup>
